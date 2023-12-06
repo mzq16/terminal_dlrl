@@ -131,6 +131,9 @@ class ego_vehicle(object):
         self.histroy_direction.append(self._action_to_direction[action])
         if random_flag:
             # pick up correct option
+            all_are_none = all(element is None for element in aligned_option)
+            if all_are_none:
+                raise ValueError(f"no ways {neighbour_ids}, {self.current_id}")
             while next_point_id is None:
                 next_point_id = np.random.choice(aligned_option)
         self.prev_id = self.current_id
