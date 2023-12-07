@@ -1,7 +1,5 @@
 from typing import List, Optional, Union
-#import gymnasium as gym
-import gym
-# sb3 1.4 还没有改版，gymnasium和sb3不适配
+import gymnasium as gym
 from collections import defaultdict
 import numpy as np
 import math
@@ -130,11 +128,10 @@ class Terminal_Env(gym.Env):
         
         # get obs 一般在info前，紧接着action。不过这里obs包括了info reward，所以就放到后面了
         
-        return obs, total_reward, done, info
+        return obs, total_reward, done, False, info
     
     def reset(self, seed=None, options=None):
-        # 新版有seed，旧版没有，甚至都没有super reset
-        # super().reset(seed=seed)
+        super().reset(seed=seed)
         self.ev_handle.reset(seed=seed)
 
         # TODO background vehicle control reset
@@ -146,7 +143,7 @@ class Terminal_Env(gym.Env):
         obs = self._get_obs(0)
         self.obs = copy.deepcopy(obs)
         info = self._get_info()
-        return obs
+        return obs, {}
 
     def close(self):
         if self.window is not None:
