@@ -169,14 +169,14 @@ class ego_vehicle(object):
         x, y = curr_xy 
         for neighbour_id, neighbour_xy in neighbour_id_xys.items():
             neighbor_x, neighbor_y = neighbour_xy
-            angle = math.atan2(neighbor_y - y, neighbor_x - x)  # (y, x)
+            angle = math.atan2(neighbor_y - y, neighbor_x - x) / math.pi * 180   # (y, x)
             if 45 < angle <= 135:
                 adjacent_point_id[0] = neighbour_id       # Up
             elif -45 > angle >= -135:
                 adjacent_point_id[1] = neighbour_id       # Down
             elif -135 > angle >= -180 or 180 > angle > 135:
                 adjacent_point_id[2] = neighbour_id       # Left
-            elif 0 <= angle <= 45 or -180 <= angle < -135:
+            elif -45 <= angle <= 45:
                 adjacent_point_id[3] = neighbour_id       # Right
         return adjacent_point_id
 
