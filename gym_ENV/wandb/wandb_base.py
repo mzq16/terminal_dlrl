@@ -62,7 +62,7 @@ class WandbCallback(BaseCallback):
         info = infos[0]
         rewards = self.locals['rewards']
         dones = self.locals['dones']
-        if "reward_info" in info.keys() and info["reward_info"]["r_exc"] != 0:
+        if "reward_info" in info.keys() and info["reward_info"]["r_exc"] > 5:
             # 看看为啥
             actions = self.locals['actions']
             q_values = self.model.policy.q_net.q_values
