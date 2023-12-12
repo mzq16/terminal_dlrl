@@ -8,6 +8,7 @@ from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.common.vec_env import DummyVecEnv, VecEnv, sync_envs_normalization
 from stable_baselines3.common.utils import safe_mean
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
+import cv2
 
 class WandbCallback(BaseCallback):
     def __init__(self, cfg, vec_env, video_path, ckpt_dir, buffer_dir):
@@ -58,7 +59,19 @@ class WandbCallback(BaseCallback):
         # 被on_step调用，on_step在BaseCallback中，一般返回true，被rollout每一步调用
         
         infos = self.locals["infos"]
+        info = infos[0]
         rewards = self.locals['rewards']
+        dones = self.locals['dones']
+        if "reward_info" in info.keys() and info["reward_info"]["r_exc"] != 0:
+            # 看看为啥
+            actions = self.locals['actions']
+            q_values = self.model.policy.q_net.q_values
+            prob_values = self.model.policy.q_net.prob_values
+            topo_mask = self.model.policy.q_net.topo_mask
+            print(f"aciton:{actions}, q_value:{q_values}, prob_value:{prob_values}, topo_mask:{topo_mask}, dones:{dones}")
+            arr_img = self.model.env.render()
+            cv2.imwrite(f"img_{self.num_timesteps}.jpg", arr_img)
+            
         all_envs_dict = {"rollout/reward_avg_n_env": safe_mean(rewards)}
         for i in range(self.model.n_envs):
             all_envs_dict[f'rollout/reward_{i}_env'] = rewards[i]
