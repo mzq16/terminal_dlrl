@@ -80,11 +80,11 @@ class my_dqn(DQN):
             q_value_avg = 0
             for i in range(n_env):
                 action_entropy += self.cal_entropy(action_probs[i])
-                q_value_avg += q_values[i]
-            action_entropy = action_entropy / n_env
-            q_value_avg = q_value_avg / n_env
-            self.logger.record("train/action_prob", action_entropy)
-            self.logger.record("train/q_value_qnet", q_value_avg)
+                q_value_avg += max(q_values[i])
+                action_entropy = action_entropy / n_env
+                q_value_avg = q_value_avg / n_env
+                self.logger.record(f"train/action_prob_{i}", action_entropy)
+                self.logger.record(f"train/q_value_qnet_{i}", q_value_avg)
 
     def cal_entropy(self, action_prob: np.ndarray):
         action_prob_revise = action_prob[action_prob != 0]
