@@ -31,7 +31,7 @@ class myQNetwork(QNetwork):
         self.softmax = nn.Softmax(dim=1)    # (batch_size, output)
         self._prob_values = None
         self._q_values = None
-        self.topo_bias = None
+        self._topo_bias = None
         
     def forward(self, obs: PyTorchObs) -> th.Tensor:
         """
@@ -52,7 +52,7 @@ class myQNetwork(QNetwork):
         # topo mask
         assert "map_topo" in observation.keys(), "no map topo info"
         topo_bias = observation['map_topo']
-        self.topo_bias = topo_bias.clone().detach()
+        self._topo_bias = topo_bias.clone().detach()
         q_values_masked = q_values - topo_bias * bios_threshold
         prob_values = self.softmax(q_values_masked)
 
@@ -71,7 +71,7 @@ class myQNetwork(QNetwork):
     
     @ property
     def topo_mask(self):
-        return self.topo_mask.detach().cpu().numpy() if self.topo_bias is not None else None
+        return self._topo_bias.detach().cpu().numpy() if self._topo_bias is not None else None
     
 class myPolicy(DQNPolicy):
     def __init__(self, observation_space: spaces.Space, 
