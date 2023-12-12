@@ -69,11 +69,13 @@ class Terminal_Env(gym.Env):
         self.action_space = gym.spaces.Discrete(4)
         self.observation_space = gym.spaces.Dict(
             {
-            "ev_curr_id": gym.spaces.Box(low=0, high=255, shape=(1,), dtype=int),       
-            "ev_prev_id": gym.spaces.Box(low=0, high=255, shape=(1,), dtype=int),
-            "ev_direction": gym.spaces.Box(low=0, high=3, shape=(1,), dtype=int),  # 4 direction, no stop
-            "render_img": gym.spaces.Box(low=0, high=255, shape=(map_size[1], map_size[0] + text_width, 3), dtype=np.uint8),
-            "ov_id": gym.spaces.Box(low=0, high=1000, shape=(self.number_v, ), dtype=int),
+            "ev_curr_id": gym.spaces.Box(low=0, high=255, shape=(1,), dtype=np.int32),       
+            "ev_prev_id": gym.spaces.Box(low=0, high=255, shape=(1,), dtype=np.int32),
+            # "ev_direction": gym.spaces.Box(low=0, high=3, shape=(1,), dtype=np.int32),  # 4 direction, no stop
+            # "render_img": gym.spaces.Box(low=0, high=255, shape=(map_size[1], map_size[0] + text_width, 3), dtype=np.uint8),
+            "ov_id": gym.spaces.Box(low=0, high=1000, shape=(self.number_v, ), dtype=np.int32),
+            "des_id": gym.spaces.Box(low=0, high=1000, shape=(1,), dtype=np.int32),
+            "map_topo": gym.spaces.Box(low=0, high=1, shape=(4,), dtype=np.int32),
             }
         )
 
@@ -82,6 +84,8 @@ class Terminal_Env(gym.Env):
         self.window = None
         self.clock = None
         self.seed = seed
+
+        self.map_topo = np.zeros((4,))
 
     def init_fig(self):
         # plt的过程中统计了映射id2plot_xy, plot_xy2id，后期可以提取出来
@@ -109,8 +113,8 @@ class Terminal_Env(gym.Env):
     
     def step(self, action: int):
         # 1. action: ego act, other act
-        self.ev_handle.step(action=action)
-
+        map_topo = self.ev_handle.step(action=action)
+        self.map_topo = np.array(map_topo).reshape(4,)
         # TODO get output from LSTM, return as observation
         for i in range(self.number_v):
             tmp_vehicle = self.other_vehicles_list[i]
@@ -140,10 +144,11 @@ class Terminal_Env(gym.Env):
             self.other_vehicles_list[i].reset()
 
         self.reward_handle.reset(self.ev_handle.start_id, self.ev_handle.target_id)
+        self.map_topo = np.zeros((4,))
         obs = self._get_obs(0)
         self.obs = copy.deepcopy(obs)
         info = self._get_info()
-        return obs, {}
+        return obs, info
 
     def close(self):
         if self.window is not None:
@@ -164,7 +169,8 @@ class Terminal_Env(gym.Env):
         if self.clock is None and self.render_mode == "human":
             self.clock = pygame.time.Clock()
 
-        render_img = self.obs['final_render_img']   # np.ndarray
+        render_img = self.get_render_img(self.text_width)
+    
         canvas = pygame.surfarray.make_surface(render_img.swapaxes(0, 1))
         scaled_canvas = pygame.transform.scale(canvas, (700, 600))
         # self.window.blit(canvas)
@@ -189,22 +195,17 @@ class Terminal_Env(gym.Env):
     def _get_obs(self, action: int):
         obs = {}
         ev_curr_id, ev_prev_id = self.ev_handle._get_ev_loc_id()
-        obs['ev_curr_id'] = np.array([ev_curr_id])
-        obs['ev_prev_id'] = np.array([ev_prev_id])
-        obs['ev_direction'] = np.array(action).reshape(1,)
-        '''
-        if action == 0: 
-            obs['ev_direction'] = self.prev_action
-        else:
-            self.prev_action = np.array(action).reshape(1,)
-            obs['ev_direction'] = np.array(action).reshape(1,)
-        '''
-        obs['render_img'] = self.get_render_img(self.text_width)
+        obs['ev_curr_id'] = np.array([ev_curr_id]) if ev_curr_id else np.array([-1])
+        obs['ev_prev_id'] = np.array([ev_prev_id]) if ev_prev_id else np.array([-1])
+        # obs['ev_direction'] = np.array(action).reshape(1,)      # 其实curr - prev就是direction
+        obs['des_id'] = np.array([self.ev_handle.target_id])
         ov_id_list = []
         for i in range(self.number_v):
+            if self.other_vehicles_list[i].curr_id is None:
+                raise ValueError("ov curr id is None")
             ov_id_list.append(self.other_vehicles_list[i].curr_id)
         obs['ov_id'] = np.array(ov_id_list)
-        # TODO add 
+        obs['map_topo'] = self.map_topo
         return obs
 
     def _get_info(self):
@@ -241,11 +242,13 @@ class Terminal_Env(gym.Env):
             target_pos = id2plot_xy[self.ev_handle.target_id]
             self.ax.plot(target_pos[0], target_pos[1], color = 'green', marker = 's', markersize = 10)
             ev_curr_id, ev_prev_id = self.ev_handle._get_ev_loc_id()
-            ev_curr_pos = id2plot_xy[ev_curr_id]
-            ev_prev_pos = id2plot_xy[ev_prev_id]
-            x, y = zip(ev_curr_pos, ev_prev_pos)
-            self.ax.plot(ev_curr_pos[0], ev_curr_pos[1], color = 'red', marker = '*', markersize = 10)
-            self.ax.plot(x, y, color='red')
+            if ev_curr_id:
+                ev_curr_pos = id2plot_xy[ev_curr_id]
+                self.ax.plot(ev_curr_pos[0], ev_curr_pos[1], color = 'red', marker = '*', markersize = 10)
+            if ev_curr_id and ev_prev_id:
+                ev_prev_pos = id2plot_xy[ev_prev_id]
+                x, y = zip(ev_curr_pos, ev_prev_pos)
+                self.ax.plot(x, y, color='red')
 
         # fig to array
         render_img = utils.figure_to_array(fig, self.map_size)

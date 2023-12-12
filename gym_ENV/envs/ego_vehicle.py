@@ -119,7 +119,9 @@ class ego_vehicle(object):
         }
     
     # 执行一步的操作
-    def step(self, action, random_flag = True):
+    def step(self, action, random_flag = False):
+        if self.current_id is None:
+            raise ValueError("step currid is none")
         neighbour_ids = list(self.G.neighbors(self.current_id))
         neighbour_id2plot_xys = {neighbour_id: self.id2plot_xy[neighbour_id] for neighbour_id in neighbour_ids}
         curr_plot_xy = self.id2plot_xy[self.current_id]
@@ -138,10 +140,10 @@ class ego_vehicle(object):
                 next_point_id = np.random.choice(aligned_option)
         self.prev_id = self.current_id
         self.current_id = next_point_id
-        self.current_position = self.id2plot_xy[next_point_id]
+        self.current_position = self.id2plot_xy[next_point_id] if next_point_id is not None else None
         self.history_inputxy.append(self.current_position)
         self.history_point_id.append(next_point_id)
-        return None
+        return [int(i is None) for i in aligned_option]
 
     def reset(self, seed=None):
         self.destroy()
