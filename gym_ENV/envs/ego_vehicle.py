@@ -111,21 +111,25 @@ class ego_vehicle(object):
         self.history_point_id.append(self.prev_id)
         self.histroy_direction.append(np.array([0, 0]))
 
+        self._aligned_option = self.get_aligned_option()
+
         self._action_to_direction = { 
             0: np.array([0, 1]),
             1: np.array([0, -1]),
             2: np.array([-1, 0]),
             3: np.array([1, 0]),
         }
-    
+
     # 执行一步的操作
     def step(self, action, random_flag = False):
         if self.current_id is None:
             raise ValueError("step currid is none")
-        neighbour_ids = list(self.G.neighbors(self.current_id))
-        neighbour_id2plot_xys = {neighbour_id: self.id2plot_xy[neighbour_id] for neighbour_id in neighbour_ids}
-        curr_plot_xy = self.id2plot_xy[self.current_id]
-        aligned_option = self.align_dir_from_angle(neighbour_id_xys = neighbour_id2plot_xys, curr_xy=curr_plot_xy)
+        #neighbour_ids = list(self.G.neighbors(self.current_id))
+        #neighbour_id2plot_xys = {neighbour_id: self.id2plot_xy[neighbour_id] for neighbour_id in neighbour_ids}
+        #curr_plot_xy = self.id2plot_xy[self.current_id]
+        #aligned_option = self.align_dir_from_angle(neighbour_id_xys = neighbour_id2plot_xys, curr_xy=curr_plot_xy)
+        aligned_option = self.get_aligned_option()
+        self._aligned_option = aligned_option
         if not isinstance(action, int):
             action = int(action)
         assert action < 4, "error action in aligned options"
@@ -135,7 +139,7 @@ class ego_vehicle(object):
             # pick up correct option
             all_are_none = all(element is None for element in aligned_option)
             if all_are_none:
-                raise ValueError(f"no ways {neighbour_ids}, {self.current_id}")
+                raise ValueError(f"no ways of node {self.current_id}")
             while next_point_id is None:
                 next_point_id = np.random.choice(aligned_option)
         self.prev_id = self.current_id
@@ -156,6 +160,9 @@ class ego_vehicle(object):
         self.history_inputxy.append(self.current_position)
         self.history_point_id.append(self.prev_id)
         self.histroy_direction.append(np.array([0, 0]))
+        aligned_option = self.get_aligned_option()
+        self._aligned_option = aligned_option
+        return [int(i is None) for i in aligned_option]
 
     def destroy(self):
         self.history_inputxy.clear()
@@ -181,6 +188,17 @@ class ego_vehicle(object):
             elif -45 <= angle <= 45:
                 adjacent_point_id[3] = neighbour_id       # Right
         return adjacent_point_id
+
+    def get_aligned_option(self):
+        neighbour_ids = list(self.G.neighbors(self.current_id))
+        neighbour_id2plot_xys = {neighbour_id: self.id2plot_xy[neighbour_id] for neighbour_id in neighbour_ids}
+        curr_plot_xy = self.id2plot_xy[self.current_id]
+        aligned_option = self.align_dir_from_angle(neighbour_id_xys = neighbour_id2plot_xys, curr_xy=curr_plot_xy)
+        return aligned_option
+
+    @property
+    def aligned_option(self):
+        return self._aligned_option
 
     def id2xy(self, id):
         # (1) id to plot xy
