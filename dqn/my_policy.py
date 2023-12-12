@@ -27,44 +27,47 @@ class myQNetwork(QNetwork):
                  activation_fn: Type[nn.Module] = nn.ReLU, 
                  normalize_images: bool = True) -> None:
         super().__init__(observation_space, action_space, features_extractor, features_dim, net_arch, activation_fn, normalize_images)
-        # overide init to add softmax layer
+        # override init to add softmax layer
         self.softmax = nn.Softmax(dim=1)    # (batch_size, output)
-        self.curr_q_value = None
-        self.input_x_value = None
+        self._prob_values = None
+        self._q_values = None
         self.topo_bias = None
         
-    def forward(self, obs: PyTorchObs, bios_threshold: float = 10000.0) -> th.Tensor:
+    def forward(self, obs: PyTorchObs) -> th.Tensor:
         """
         Predict the q-values.
 
         :param obs: Observation
         :return: The estimated Q-Value for each action.
 
-        overide
+        override，其实这个函数不override也是可以的，因为override 的部分移动到下面了
         """
-        input_x = self.q_net(self.extract_features(obs, self.features_extractor))
-        self.input_x_value = input_x.clone().detach()
-        assert "map_topo" in obs.keys(), "no map topo info"
-        topo_bias = obs['map_topo']
-        self.topo_bias = topo_bias.clone().detach()
-        input_x -= topo_bias * bios_threshold
-        return self.softmax(input_x)
+        q_values = self.q_net(self.extract_features(obs, self.features_extractor))
+        return q_values
     
-    def _predict(self, observation: PyTorchObs, deterministic: bool = True) -> th.Tensor:
-        # overide
-        q_values = self(observation)
+    def _predict(self, observation: PyTorchObs, deterministic: bool = True, bios_threshold: float = 10000.0) -> th.Tensor:
+        # override
+        q_values = self(observation).detach()
+        self._q_values = q_values.clone().detach()
+        # topo mask
+        assert "map_topo" in observation.keys(), "no map topo info"
+        topo_bias = observation['map_topo']
+        self.topo_bias = topo_bias.clone().detach()
+        q_values_masked = q_values - topo_bias * bios_threshold
+        prob_values = self.softmax(q_values_masked)
+
         # Greedy action
-        action = q_values.argmax(dim=1).reshape(-1)
-        self.curr_q_value = q_values.clone().detach()
+        action = prob_values.argmax(dim=1).reshape(-1)
+        self._prob_values = prob_values.clone().detach()
         return action
     
     @property
-    def q_value(self) -> np.ndarray:
-        return self.curr_q_value.detach().cpu().numpy() if self.curr_q_value is not None else None
+    def prob_values(self) -> np.ndarray:
+        return self._prob_values.detach().cpu().numpy() if self._prob_values is not None else None
     
     @property
-    def x_value(self) -> np.ndarray:
-        return self.input_x_value.detach().cpu().numpy() if self.input_x_value is not None else None
+    def q_values(self) -> np.ndarray:
+        return self._q_values.detach().cpu().numpy() if self._q_values is not None else None
     
     @ property
     def topo_mask(self):
@@ -93,6 +96,6 @@ class myPolicy(DQNPolicy):
         
     def make_q_net(self) -> myQNetwork:
         # Make sure we always have separate networks for features extractors etc
-        # overide
+        # override
         net_args = self._update_features_extractor(self.net_args, features_extractor=self.features_extractor)
         return myQNetwork(**net_args).to(self.device)

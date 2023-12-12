@@ -24,18 +24,18 @@ class reward(object):
 
     def step(self, other_vehicle_list: List[other_vehicle], ego_vehicle: ego_vehicle):
         curr_id, prev_id = ego_vehicle._get_ev_loc_id()
-        curr_xy = self.id2xy(curr_id)
+        
         # 0. if exceed the map
         if curr_id:
             r_exc = 0
         else:
-            r_exc = -99
+            r_exc = -10
             r_total = r_exc
             self.reward_info['r_exc'] = r_exc
             self.reward_info['r_total'] = r_total
             done = True
             return r_total, done
-            
+        curr_xy = self.id2xy(curr_id)
         # 1. direction reward: the ego should drive ahead, if turn around ego will get penalty
         prev_dir, curr_dir  = ego_vehicle.histroy_direction
 
@@ -54,7 +54,8 @@ class reward(object):
         
 
         # 4. time, need to be as soon as possible
-        r_t = -0.1 
+        # 不as soon as possible了，能正常走在路网内就很可以了
+        r_t = 0.2
 
         # 5. speed should not be zero, if ego vehicle at some current time receive positive reward, 
         #   it could stop forever to acheive higher total reward

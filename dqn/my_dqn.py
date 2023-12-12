@@ -69,17 +69,23 @@ class my_dqn(DQN):
             action, state = self.policy.predict(observation, state, episode_start, deterministic)
         return action, state
         
-        
-
     def _on_step(self) -> None:
         super()._on_step()
-        action_prob = self.policy.q_net.q_value
-        x_value = self.policy.q_net.x_value
-        if action_prob is not None and x_value is not None:
-            # print(action_prob, "haha", x_value)
-            self.logger.record("train/action_prob", self.cal_entropy(action_prob))
-        
-    
+        # batch size,其实不是batchsize了，而是number env
+        action_probs = self.policy.q_net.prob_values
+        q_values = self.policy.q_net.q_values
+        if action_probs is not None and q_values is not None:
+            n_env = action_probs.shape[0]
+            action_entropy = 0
+            q_value_avg = 0
+            for i in range(n_env):
+                action_entropy += self.cal_entropy(action_probs[i])
+                q_value_avg += q_values[i]
+            action_entropy = action_entropy / n_env
+            q_value_avg = q_value_avg / n_env
+            self.logger.record("train/action_prob", action_entropy)
+            self.logger.record("train/q_value_qnet", q_value_avg)
+
     def cal_entropy(self, action_prob: np.ndarray):
         action_prob_revise = action_prob[action_prob != 0]
         return -np.sum(action_prob_revise * np.log2(action_prob_revise))
