@@ -27,8 +27,8 @@ class WandbCallback(BaseCallback):
         self.vec_env = vec_env
         
         # 一些eval参数
-        self._eval_step = int(1e3)
-        self._n_eval_episodes = 10
+        self._eval_step = int(1e5)
+        self._n_eval_episodes = 1
         self.warn = True
         self._render = False
         self._deterministic = True
@@ -62,26 +62,29 @@ class WandbCallback(BaseCallback):
         info = infos[0]
         rewards = self.locals['rewards']
         dones = self.locals['dones']
-        if "reward_info" in info.keys() and info["reward_info"]["r_exc"] > 5:
-            # 看看为啥
-            actions = self.locals['actions']
-            q_values = self.model.policy.q_net.q_values
-            prob_values = self.model.policy.q_net.prob_values
-            topo_mask = self.model.policy.q_net.topo_mask
-            print(f"aciton:{actions}, q_value:{q_values}, prob_value:{prob_values}, topo_mask:{topo_mask}, dones:{dones}")
-            arr_img = self.model.env.render()
-            cv2.imwrite(f"img_{self.num_timesteps}.jpg", arr_img)
+        obs = self.locals['new_obs']
+        
+        if "reward_info" in info.keys() and info["reward_info"]["r_exc"] < -5:
+            self._check_exc_situation()
+        if dones[0] is True:
+            if info["reward_info"]["r_exc"] > -5:
+                print("checked done not exc")
+            elif info["reward_info"]["r_arr"] < 10:
+                print("checked done not arr")
+            else:
+                print(f"rewards:{rewards}, not right done situation")
             
         all_envs_dict = {"rollout/reward_avg_n_env": safe_mean(rewards)}
+        # for i in range(self.model.n_envs):
+        #    all_envs_dict[f'rollout/reward_{i}_env'] = rewards[i]
+        #wandb.log(all_envs_dict, step=self.model.num_timesteps)
         for i in range(self.model.n_envs):
             all_envs_dict[f'rollout/reward_{i}_env'] = rewards[i]
-        wandb.log(all_envs_dict, step=self.model.num_timesteps)
-        for i in range(self.model.n_envs):
-            single_envs_dict = {}
             single_reward_info = infos[i].get('reward_info')
+            all_envs_dict[f"rollout/reward_{i}_env/done"] = int(dones[i])
             for k, v in single_reward_info.items():
-                single_envs_dict[f'rollout/reward_{i}_env/' + k] = v
-            wandb.log(single_envs_dict, step=self.model.num_timesteps)
+                all_envs_dict[f'rollout/reward_{i}_env/' + k] = v
+            wandb.log(all_envs_dict, step=self.model.num_timesteps)
 
         assert self.model.ep_info_buffer is not None
         assert self.model.ep_success_buffer is not None
@@ -171,7 +174,8 @@ class WandbCallback(BaseCallback):
         if "train/action_prob" in self.model.logger.name_to_value.keys():
             logger_dict["train/action_prob"] = self.model.logger.name_to_value["train/action_prob"]
         for k, v in self.model.logger.name_to_value.items():
-            logger_dict[f"test_logger_dict/" + k] = v
+            if k != "topo_pred" or k != "random":
+                logger_dict[f"test_logger_dict/" + k] = v
         wandb.log(logger_dict, step=self.num_timesteps)
 
         # one episode
@@ -202,7 +206,33 @@ class WandbCallback(BaseCallback):
             if maybe_is_success is not None:
                 self._is_success_buffer.append(maybe_is_success)
 
-def init_callback_list(env, save_freq=100, save_path='data/checkpoint_noimg/', save_replay_buffer=False, verbose=2):
+    def _check_exc_situation(self):
+        infos = self.locals["infos"]
+        info = infos[0]
+        rewards = self.locals['rewards']
+        dones = self.locals['dones']
+        obs = self.locals['new_obs']
+        if "random" in self.model.logger.name_to_value.keys():
+                random_ = self.model.logger.name_to_value['random']
+        else:
+            random_ = None
+        actions = self.locals['actions']
+        cu_id, pr_id = info["ev_loc"]
+        q_values = self.model.policy.q_net.q_values
+        prob_values = self.model.policy.q_net.prob_values
+        topo_mask = self.model.policy.q_net.topo_mask
+        topo_pred = self.model.logger.name_to_value['topo_pred']
+        evid_pred = self.model.logger.name_to_value['evid_pred']
+        desid_pred = self.model.logger.name_to_value['desid_pred']
+        print(f"q_value_net:{q_values}, prob_value_net:{prob_values}, topo_mask_net:{topo_mask}, \
+                dones:{dones}, random_pred:{random_}, topo_pred:{topo_pred}, evid_pred:{evid_pred}, desid_pred:{desid_pred}")
+        print(f"action:{actions}, curr_id:{cu_id}, prev_id:{pr_id}, \
+                numstep:{self.num_timesteps}, obs_evid:{obs['ev_curr_id']}, obs_desid:{obs['des_id']}, obs_topomap:{obs['map_topo']}")
+        arr_img = self.model.env.render()
+        cv2.imwrite(f"img_{self.num_timesteps}.jpg", arr_img)
+
+
+def init_callback_list(env, save_freq=100, save_path='data/checkpoint_noimg/', save_replay_buffer=False, wandb_flag=True, verbose=2):
     '''
     verbose: 2就是什么信息都打印，0就都不打印，没1什么事，之后可以改
     '''
@@ -221,6 +251,8 @@ def init_callback_list(env, save_freq=100, save_path='data/checkpoint_noimg/', s
     # 之后也是一一调用callback1._on_step，然后callback3._on_step-------> callback2._on_step, callback0._on_step
     # 没区别，不嵌套了，后面还有一个tqdm的callback，那个是把rollout和train放一块了，如果任务比较简单就和成一起吧
     # callback_list = CallbackList([callback_save, callback_wandb])
-
-    callback_list = [callback_save, callback_wandb]
+    if wandb_flag:
+        callback_list = [callback_save, callback_wandb]
+    else:
+        callback_list = [callback_save]
     return callback_list

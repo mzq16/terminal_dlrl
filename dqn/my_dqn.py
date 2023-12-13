@@ -1,3 +1,4 @@
+from gymnasium import ObservationWrapper
 import stable_baselines3 as sb3
 from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.type_aliases import GymEnv, Schedule
@@ -60,13 +61,18 @@ class my_dqn(DQN):
                 else:
                     n_batch = observation.shape[0]
                 a_list = []
-                for i in range(n_batch):
-                    topo_info = observation["map_topo"][i]
-                    indice = np.where(topo_info < 0.5)[0]
-                    a_list.append(np.random.choice(indice))
-                action = np.array(a_list)
+            for i in range(n_batch):
+                topo_info = observation["map_topo"][i]
+                indice = np.where(topo_info < 0.5)[0]
+                a_list.append(np.random.choice(indice))
+            action = np.array(a_list)
+            self.logger.record("random", True)
         else:
             action, state = self.policy.predict(observation, state, episode_start, deterministic)
+            self.logger.record("random", False)
+        self.logger.record("topo_pred", observation['map_topo'])
+        self.logger.record("evid_pred", observation["ev_curr_id"])
+        self.logger.record("desid_pred", observation["des_id"])
         return action, state
         
     def _on_step(self) -> None:
