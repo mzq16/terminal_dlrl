@@ -4,6 +4,8 @@ from . import utils
 from typing import List, Tuple, Dict
 from .other_vehicle import other_vehicle
 from .ego_vehicle import ego_vehicle
+import networkx as nx
+
 
 class reward(object):
     def __init__(self, G, id2plot_xy, plot_xy2id, start_id: int, des_id: int) -> None:
@@ -21,14 +23,17 @@ class reward(object):
 
         self.total_dis = np.linalg.norm(self.start_xy - self.des_xy)
         self.prev_dis = self.total_dis
+        self.prev_shortest_path = nx.shortest_path(self.G, source=self.start_id, target=self.des_id)
 
     def step(self, other_vehicle_list: List[other_vehicle], ego_vehicle: ego_vehicle):
         curr_id, prev_id = ego_vehicle._get_ev_loc_id()
-        
+        des_id = ego_vehicle.target_id
+        r_dir = r_dis = r_t = r_arr = r_path = 0
         # 0. if exceed the map
-        if curr_id:
+        if curr_id is not None:
             r_exc = 0
         else:
+            print("exceed")
             r_exc = -10
             r_total = r_exc
             self.reward_info['r_exc'] = r_exc
@@ -40,22 +45,39 @@ class reward(object):
         prev_dir, curr_dir  = ego_vehicle.histroy_direction
 
         if sum(prev_dir * curr_dir) < -0.5:
-            r_dir = -5
+            r_dir = -0.2
         else:
             r_dir = 0
  
         # 2. distance from des reward: more close more reward
+        # 纯欧拉
         distance = self.get_dis(curr_xy = curr_xy)
-        r_dis = (self.prev_dis - distance) / self.total_dis
-        self.prev_dis = distance
+        r_dis = 0
+        r_path = 0
+        # 最短路径
+        curr_shortest_path = nx.shortest_path(self.G, source=curr_id, target=des_id)
 
+        # 几种情况，最差情况dis也变大，path也变大，则明显惩罚
+        # 最好情况path变小，dis无所谓变小变大，都一样，
+        # 中间情况，path变大，但是dis变小，在徘徊
+        if len(self.prev_shortest_path) < 2:
+            print("prev path len < 1", self.prev_shortest_path, ego_vehicle.start_id, ego_vehicle.target_id, ego_vehicle.prev_id)
+        if self.prev_dis < distance and len(self.prev_shortest_path) < len(curr_shortest_path):
+            r_dis = (self.prev_dis - distance) / self.total_dis
+            r_path = -0.1
+        elif len(self.prev_shortest_path) >= len(curr_shortest_path):
+            r_path = 0.4
+        elif self.prev_dis > distance and len(self.prev_shortest_path) < len(curr_shortest_path):
+            pass
+        self.prev_dis = distance
+        self.prev_shortest_path = curr_shortest_path
         # 3. distance from other vehicle
         # TODO sum 
         
 
         # 4. time, need to be as soon as possible
         # 不as soon as possible了，能正常走在路网内就很可以了
-        r_t = 0.2
+        r_t = -0.1
 
         # 5. speed should not be zero, if ego vehicle at some current time receive positive reward, 
         #   it could stop forever to acheive higher total reward
@@ -63,17 +85,19 @@ class reward(object):
 
         # 6. arrived 
         if curr_id == ego_vehicle.target_id:
+            print("arrived", curr_id, ego_vehicle.target_id, prev_id, ego_vehicle.start_id)
             r_arr = 10
             done = True
         else:
             r_arr = 0
             done = False
-        r_total = r_dir + r_dis + r_t + r_arr
+        r_total = r_dir + r_dis + r_t + r_arr + r_path
         self.reward_info['r_total'] = r_total
         self.reward_info['r_dir'] = r_dir
         self.reward_info['r_dis'] = r_dis
         self.reward_info['r_t'] = r_t
         self.reward_info['r_arr'] = r_arr
+        self.reward_info['r_path'] = r_path
         return r_total, done
 
     def reset(self, start_id, des_id):
@@ -85,6 +109,7 @@ class reward(object):
         self.des_xy = self.id2xy(des_id)        # np.ndarray
         self.total_dis = np.linalg.norm(self.start_xy - self.des_xy)
         self.prev_dis = self.total_dis
+        self.prev_shortest_path = nx.shortest_path(self.G, source=self.start_id, target=self.des_id)
         
     def destroy(self):
         self.total_dis = None
