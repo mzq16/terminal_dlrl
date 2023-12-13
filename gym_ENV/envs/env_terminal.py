@@ -69,13 +69,13 @@ class Terminal_Env(gym.Env):
         self.action_space = gym.spaces.Discrete(4)
         self.observation_space = gym.spaces.Dict(
             {
-            "ev_curr_id": gym.spaces.Box(low=0, high=255, shape=(1,), dtype=np.int32),       
-            "ev_prev_id": gym.spaces.Box(low=0, high=255, shape=(1,), dtype=np.int32),
+            "ev_curr_id": gym.spaces.Box(low=0, high=255, shape=(1,), dtype=np.int64),       
+            "ev_prev_id": gym.spaces.Box(low=0, high=255, shape=(1,), dtype=np.int64),
             # "ev_direction": gym.spaces.Box(low=0, high=3, shape=(1,), dtype=np.int32),  # 4 direction, no stop
             # "render_img": gym.spaces.Box(low=0, high=255, shape=(map_size[1], map_size[0] + text_width, 3), dtype=np.uint8),
-            "ov_id": gym.spaces.Box(low=0, high=1000, shape=(self.number_v, ), dtype=np.int32),
-            "des_id": gym.spaces.Box(low=0, high=1000, shape=(1,), dtype=np.int32),
-            "map_topo": gym.spaces.Box(low=0, high=1, shape=(4,), dtype=np.int32),
+            "ov_id": gym.spaces.Box(low=0, high=1000, shape=(self.number_v, ), dtype=np.int64),
+            "des_id": gym.spaces.Box(low=0, high=1000, shape=(1,), dtype=np.int64),
+            "map_topo": gym.spaces.Box(low=0, high=1, shape=(4,), dtype=np.int64),
             }
         )
 
@@ -304,12 +304,13 @@ class Terminal_Env(gym.Env):
         # txt_t4 = f'r_total:{info["r_total"]:5.2f}'
         txt_t3 = f'r_dir:{info["r_dir"]:5.2f}, r_arr:{info["r_arr"]:5.2f}'
         # txt_t6 = f'r_arr:{info["r_arr"]:5.2f}'
-        txt_t4 = f'r_dis:{info["r_dis"]:5.2f}, done:{self.done}'
-        txt_t5 = f"ev_curr_id:{ev_curr_id}, ev_prev_id:{ev_prev_id}"
-        txt_t6 = f"start_id:{start_id}, des_id:{des_id}"
+        txt_t4 = f'r_dis:{info["r_dis"]:5.2f}, r_path:{info["r_path"]:5.2f}'
+        txt_t5 = f"done:{self.done}"
+        txt_t6 = f"ev_curr_id:{ev_curr_id}, ev_prev_id:{ev_prev_id}"
+        txt_t7 = f"start_id:{start_id}, des_id:{des_id}"
 
 
-        txt_t = [txt_t1, txt_t2, txt_t3, txt_t4, txt_t5, txt_t6]
+        txt_t = [txt_t1, txt_t2, txt_t3, txt_t4, txt_t5, txt_t6, txt_t7]
         for i in range(len(txt_t)):
             text_img = cv2.putText(text_img, txt_t[i], (0, 30*(i+1)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
         return text_img
