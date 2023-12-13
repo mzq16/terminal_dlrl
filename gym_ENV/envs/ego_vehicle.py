@@ -191,6 +191,8 @@ class ego_vehicle(object):
         return adjacent_point_id
 
     def get_aligned_option(self):
+        if self.current_id is None:
+            return [None for _ in range(4)]
         try:
             neighbour_ids = list(self.G.neighbors(self.current_id))
         except:
