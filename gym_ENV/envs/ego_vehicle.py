@@ -128,26 +128,28 @@ class ego_vehicle(object):
         #neighbour_id2plot_xys = {neighbour_id: self.id2plot_xy[neighbour_id] for neighbour_id in neighbour_ids}
         #curr_plot_xy = self.id2plot_xy[self.current_id]
         #aligned_option = self.align_dir_from_angle(neighbour_id_xys = neighbour_id2plot_xys, curr_xy=curr_plot_xy)
-        aligned_option = self.get_aligned_option()
-        self._aligned_option = aligned_option
+        #aligned_option = self.get_aligned_option()
         if not isinstance(action, int):
             action = int(action)
         assert action < 4, "error action in aligned options"
-        next_point_id = aligned_option[action]
+        next_point_id = self._aligned_option[action]
         self.histroy_direction.append(self._action_to_direction[action])
         if random_flag:
             # pick up correct option
-            all_are_none = all(element is None for element in aligned_option)
+            all_are_none = all(element is None for element in self._aligned_option)
             if all_are_none:
                 raise ValueError(f"no ways of node {self.current_id}")
             while next_point_id is None:
-                next_point_id = np.random.choice(aligned_option)
+                next_point_id = np.random.choice(self._aligned_option)
         self.prev_id = self.current_id
         self.current_id = next_point_id
+        if next_point_id is None:
+            print(self.current_id, self.prev_id)
         self.current_position = self.id2plot_xy[next_point_id] if next_point_id is not None else None
         self.history_inputxy.append(self.current_position)
         self.history_point_id.append(next_point_id)
-        return [int(i is None) for i in aligned_option]
+        self._aligned_option = self.get_aligned_option()
+        return [int(i is None) for i in self._aligned_option]
 
     def reset(self, seed=None):
         self.destroy()
@@ -160,9 +162,8 @@ class ego_vehicle(object):
         self.history_inputxy.append(self.current_position)
         self.history_point_id.append(self.prev_id)
         self.histroy_direction.append(np.array([0, 0]))
-        aligned_option = self.get_aligned_option()
-        self._aligned_option = aligned_option
-        return [int(i is None) for i in aligned_option]
+        self._aligned_option = self.get_aligned_option()
+        return [int(i is None) for i in self._aligned_option]
 
     def destroy(self):
         self.history_inputxy.clear()
@@ -190,7 +191,10 @@ class ego_vehicle(object):
         return adjacent_point_id
 
     def get_aligned_option(self):
-        neighbour_ids = list(self.G.neighbors(self.current_id))
+        try:
+            neighbour_ids = list(self.G.neighbors(self.current_id))
+        except:
+            print(self.current_id)
         neighbour_id2plot_xys = {neighbour_id: self.id2plot_xy[neighbour_id] for neighbour_id in neighbour_ids}
         curr_plot_xy = self.id2plot_xy[self.current_id]
         aligned_option = self.align_dir_from_angle(neighbour_id_xys = neighbour_id2plot_xys, curr_xy=curr_plot_xy)
