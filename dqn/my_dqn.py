@@ -71,7 +71,7 @@ class my_dqn(DQN):
             action, state = self.policy.predict(observation, state, episode_start, deterministic)
             self.logger.record("random", False)
         self.logger.record("topo_pred", observation['map_topo'])
-        self.logger.record("evid_pred", observation["ev_curr_id"])
+        self.logger.record("history_pred", observation["history_id"])
         self.logger.record("desid_pred", observation["des_id"])
         return action, state
         

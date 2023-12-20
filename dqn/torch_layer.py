@@ -70,15 +70,25 @@ class myExtractor(BaseFeaturesExtractor):
         for key, subspace in observation_space.spaces.items():
             net_args = []
             if key != 'map_topo':
-                net_args.append(nn.Flatten())
-                faltten_dim = get_flattened_obs_dim(subspace)
-                net_args.append(nn.Linear(faltten_dim, net_arch[0]))
-                for idx in range(len(net_arch) - 1):
-                    net_args.append(nn.Linear(net_arch[idx], net_arch[idx + 1]))
+                if key != 'des_id':
+                    net_args.append(nn.Flatten())
+                    faltten_dim = get_flattened_obs_dim(subspace)
+                    net_args.append(nn.Linear(faltten_dim, net_arch[0]))
+                    for idx in range(len(net_arch) - 1):
+                        net_args.append(nn.Linear(net_arch[idx], net_arch[idx + 1]))
+                        net_args.append(activation_fn())
+                    total_concat_size += net_arch[-1]
+                else:
+                    net_args.append(nn.Flatten())
+                    faltten_dim = get_flattened_obs_dim(subspace)
+                    net_args.append(nn.Linear(faltten_dim, 4))
                     net_args.append(activation_fn())
-                    
+                    net_args.append(nn.Linear(4, 8))
+                    net_args.append(activation_fn())
+                    net_args.append(nn.Linear(8, 4))
+                    net_args.append(activation_fn())
+                    total_concat_size += 4
                 extractors[key] = nn.Sequential(*net_args)
-                total_concat_size += net_arch[-1]
 
         self.extractors = nn.ModuleDict(extractors)
 

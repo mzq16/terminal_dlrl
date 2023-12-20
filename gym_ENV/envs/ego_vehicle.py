@@ -91,34 +91,35 @@ class ego_vehicle_old(object):
         return self.des_CR
 
 class ego_vehicle(object):
-    def __init__(self, G, plot_xy2id, id2plot_xy, start_point_id = None, target_point_id = 453):
-        self.history_inputxy = deque(maxlen=10)         # useless
-        self.history_point_id = deque(maxlen = 2)       # include curr_id and prev_id
-        self.histroy_direction = deque(maxlen=2)        # include curr_dir and prev_dir
+    def __init__(self, G, plot_xy2id, id2plot_xy, start_point_id = None, target_point_id = 453, history_len = 5):
+        self.history_inputxy = deque(maxlen = 10)         # useless
+        self._history_point_id = deque(maxlen = history_len)       # include curr_id and prev_ids
+        self.histroy_direction = deque(maxlen = history_len)        # include curr_dir and prev_dir
+        self.history_len = history_len
         self.plot_xy2id = plot_xy2id
         self.id2plot_xy = id2plot_xy
         self.G = G
 
-        self.target_id = target_point_id
-        if start_point_id is None:
-            self.start_id = random.choice(list(range(len(self.id2plot_xy))))
-        else:
-            self.start_id = start_point_id
-        self.prev_id = self.start_id
-        self.current_id = self.start_id
-        self.current_position = self.id2plot_xy[self.current_id]
-        self.history_inputxy.append(self.current_position)
-        self.history_point_id.append(self.prev_id)
-        self.histroy_direction.append(np.array([0, 0]))
-
-        self._aligned_option = self.get_aligned_option()
-
+        
+        self.init_param(start_point_id, target_point_id)
         self._action_to_direction = { 
             0: np.array([0, 1]),
             1: np.array([0, -1]),
             2: np.array([-1, 0]),
             3: np.array([1, 0]),
         }
+
+    def init_param(self, start_point_id, target_point_id):
+        self._target_id = int(target_point_id)
+        self.start_id = int(start_point_id) if start_point_id is not None \
+            else random.choice(list(range(len(self.id2plot_xy))).remove(target_point_id))
+        self.current_id = self.start_id
+        self.current_position = self.id2plot_xy[self.current_id]
+        self.history_inputxy.append(self.current_position)
+        for i in range(self.history_len):
+            self._history_point_id.append(self.start_id)
+            self.histroy_direction.append(np.array([0, 0]))
+        self._aligned_option = self.get_aligned_option()
 
     # 执行一步的操作
     def step(self, action, random_flag = False):
@@ -141,37 +142,31 @@ class ego_vehicle(object):
                 raise ValueError(f"no ways of node {self.current_id}")
             while next_point_id is None:
                 next_point_id = np.random.choice(self._aligned_option)
-        self.prev_id = self.current_id
         self.current_id = next_point_id
         if next_point_id is None:
-            print(self.current_id, self.prev_id)
+            print(self._history_point_id)
         self.current_position = self.id2plot_xy[next_point_id] if next_point_id is not None else None
         self.history_inputxy.append(self.current_position)
-        self.history_point_id.append(next_point_id)
+        self._history_point_id.append(next_point_id)
         self._aligned_option = self.get_aligned_option()
         return [int(i is None) for i in self._aligned_option]
 
-    def reset(self, seed=None):
+    def reset(self, seed=None, OD:tuple=None):
         self.destroy()
-        start, target = np.random.choice(len(self.id2plot_xy), 2, replace=False)
-        self.start_id = start
-        self.target_id = int(target)
-        self.current_id = int(start)
-        self.prev_id = int(start)
-        self.current_position = self.id2plot_xy[self.current_id]
-        self.history_inputxy.append(self.current_position)
-        self.history_point_id.append(self.prev_id)
-        self.histroy_direction.append(np.array([0, 0]))
-        self._aligned_option = self.get_aligned_option()
+        if OD is None:
+            start, target = np.random.choice(len(self.id2plot_xy), 2, replace=False)
+        else:
+            start, target = OD
+        self.init_param(start, target)
         return [int(i is None) for i in self._aligned_option]
 
     def destroy(self):
         self.history_inputxy.clear()
-        self.history_point_id.clear()
+        self._history_point_id.clear()
         self.histroy_direction.clear()
         self.current_id = None
-        self.prev_id = None
-        self.target_id = None
+        self.start_id = None
+        self._target_id = None
 
     def align_dir_from_angle(self, neighbour_id_xys:dict, curr_xy):
         # 上下左右，90,-90,180,0
@@ -214,5 +209,12 @@ class ego_vehicle(object):
         return xy
 
     def _get_ev_loc_id(self):
-        return self.current_id, self.prev_id
+        return self.current_id, self._history_point_id[-2]
     
+    @property
+    def history_point_id(self):
+        return self._history_point_id
+    
+    @property
+    def target_id(self):
+        return self._target_id

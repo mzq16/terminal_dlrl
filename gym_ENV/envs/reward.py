@@ -5,10 +5,10 @@ from typing import List, Tuple, Dict
 from .other_vehicle import other_vehicle
 from .ego_vehicle import ego_vehicle
 import networkx as nx
-
+from collections import deque, Counter
 
 class reward(object):
-    def __init__(self, G, id2plot_xy, plot_xy2id, start_id: int, des_id: int) -> None:
+    def __init__(self, G, id2plot_xy, plot_xy2id, start_id: int, des_id: int, timeout_step: int = 200) -> None:
         ''''''
         self.G = G
         self.id2plot_xy = id2plot_xy
@@ -24,31 +24,55 @@ class reward(object):
         self.total_dis = np.linalg.norm(self.start_xy - self.des_xy)
         self.prev_dis = self.total_dis
         self.prev_shortest_path = nx.shortest_path(self.G, source=self.start_id, target=self.des_id)
+        self.episode_step = 0
+        self.timeout_step = timeout_step
 
     def step(self, other_vehicle_list: List[other_vehicle], ego_vehicle: ego_vehicle):
         curr_id, prev_id = ego_vehicle._get_ev_loc_id()
         des_id = ego_vehicle.target_id
-        r_dir = r_dis = r_t = r_arr = r_path = 0
+        r_dir = r_dis = r_t = r_arr = r_path = r_timeout = 0
+        done = False
         # 0. if exceed the map
         if curr_id is not None:
             r_exc = 0
         else:
             print("exceed")
-            r_exc = -10
+            r_exc = -3
             r_total = r_exc
             self.reward_info['r_exc'] = r_exc
             self.reward_info['r_total'] = r_total
+            self.episode_step = 0
             done = True
             return r_total, done
+        
+        # 0.5 timeout
+        self.episode_step += 1
+        if self.episode_step > self.timeout_step:
+            # print("exceed length")
+            r_timeout = -0.01
+            r_total = r_timeout
+            self.reward_info['r_timeout'] = r_timeout
+            self.reward_info['r_total'] = r_total
+            self.episode_step = 0
+            done = True
+            return r_total, done
+        else:
+            r_timeout = 0
+
         curr_xy = self.id2xy(curr_id)
         # 1. direction reward: the ego should drive ahead, if turn around ego will get penalty
-        prev_dir, curr_dir  = ego_vehicle.histroy_direction
+        prev_dir, curr_dir  = ego_vehicle.histroy_direction[-2], ego_vehicle.histroy_direction[-1]
 
         if sum(prev_dir * curr_dir) < -0.5:
             r_dir = -0.2
         else:
             r_dir = 0
- 
+
+        # 1.5 有些时候会在角落里陷入局部最优，就在角落里来回震荡, 避免这种情况
+        history_point_id = ego_vehicle.history_point_id
+        if history_point_id.count(history_point_id[-1]) == 3:
+            r_dir = -1
+            
         # 2. distance from des reward: more close more reward
         # 纯欧拉
         distance = self.get_dis(curr_xy = curr_xy)
@@ -85,12 +109,17 @@ class reward(object):
 
         # 6. arrived 
         if curr_id == ego_vehicle.target_id:
-            print("arrived", curr_id, ego_vehicle.target_id, prev_id, ego_vehicle.start_id)
-            r_arr = 10
+            #print("arrived", curr_id, ego_vehicle.target_id, prev_id, ego_vehicle.start_id)
+            r_arr = 4
+            r_total = r_arr
+            self.reward_info['r_total'] = r_total
+            self.reward_info['r_arr'] = r_arr
+            self.episode_step = 0
             done = True
+            return r_total, done
         else:
             r_arr = 0
-            done = False
+
         r_total = r_dir + r_dis + r_t + r_arr + r_path
         self.reward_info['r_total'] = r_total
         self.reward_info['r_dir'] = r_dir
@@ -98,9 +127,12 @@ class reward(object):
         self.reward_info['r_t'] = r_t
         self.reward_info['r_arr'] = r_arr
         self.reward_info['r_path'] = r_path
+        self.reward_info['r_timeout'] = r_timeout
+        # self.reward_info['r_shake'] = r_shake
+
         return r_total, done
 
-    def reset(self, start_id, des_id):
+    def reset(self, start_id, des_id, timeout_step = 200):
         self.destroy()
         self.init_info()
         self.start_id = start_id
@@ -110,6 +142,8 @@ class reward(object):
         self.total_dis = np.linalg.norm(self.start_xy - self.des_xy)
         self.prev_dis = self.total_dis
         self.prev_shortest_path = nx.shortest_path(self.G, source=self.start_id, target=self.des_id)
+        self.episode_step = 0
+        self.timeout_step = timeout_step
         
     def destroy(self):
         self.total_dis = None
@@ -119,12 +153,13 @@ class reward(object):
     def init_info(self):
         info = {}
         info['r_exc'] = 0
-        info['r_spd'] = 0
         info['r_arr'] = 0
         info['r_t'] = 0
         info['r_dir'] = 0
         info['r_dis'] = 0
         info['r_total'] = 0
+        info['r_path'] = 0
+        info['r_timeout'] = 0
         self.reward_info = info
 
     def get_dis(self, curr_xy: np.ndarray):

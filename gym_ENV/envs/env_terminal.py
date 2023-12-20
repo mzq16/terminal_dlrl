@@ -41,7 +41,7 @@ class Terminal_Env(gym.Env):
         self.number_v = num_vehicle
         self.text_width = text_width
         self.obs = None
-        self.info = None
+        
         self.map_size = map_size
         self.prev_action = np.array([0])
         # 用plt画图的话，map每次都需要画，所以在render中画即可
@@ -60,7 +60,7 @@ class Terminal_Env(gym.Env):
                                      start_point_id=start_point_id, target_point_id=target_point_id)
         self.reward_handle = reward(G=self.G, id2plot_xy=self.id2plot_xy, plot_xy2id=self.plot_xy2id, 
                                     start_id=start_point_id, des_id=target_point_id)
-        
+        self.info = {'reward_info': self.reward_handle.reward_info}
         """
         The following is action space and observation space
         只有4个动作，要不要考虑5个，第5个就是停止，
@@ -69,8 +69,9 @@ class Terminal_Env(gym.Env):
         self.action_space = gym.spaces.Discrete(4)
         self.observation_space = gym.spaces.Dict(
             {
-            "ev_curr_id": gym.spaces.Box(low=0, high=255, shape=(1,), dtype=np.int64),       
-            "ev_prev_id": gym.spaces.Box(low=0, high=255, shape=(1,), dtype=np.int64),
+            #"ev_curr_id": gym.spaces.Box(low=0, high=255, shape=(1,), dtype=np.int64),       
+            #"ev_prev_id": gym.spaces.Box(low=0, high=255, shape=(1,), dtype=np.int64),
+            "history_id": gym.spaces.Box(low=0, high=255, shape=(5,), dtype=np.int64),       
             # "ev_direction": gym.spaces.Box(low=0, high=3, shape=(1,), dtype=np.int32),  # 4 direction, no stop
             # "render_img": gym.spaces.Box(low=0, high=255, shape=(map_size[1], map_size[0] + text_width, 3), dtype=np.uint8),
             "ov_id": gym.spaces.Box(low=0, high=1000, shape=(self.number_v, ), dtype=np.int64),
@@ -86,8 +87,7 @@ class Terminal_Env(gym.Env):
         self.seed = seed
         aligned_option = self.ev_handle.aligned_option
         self.map_topo = np.array([int(i is None) for i in aligned_option]).reshape(4,)
-        self.done = False
-
+        
     def init_fig(self):
         # plt的过程中统计了映射id2plot_xy, plot_xy2id，后期可以提取出来
         fig, ax1 = plt.subplots(figsize=(16, 10))
@@ -108,6 +108,10 @@ class Terminal_Env(gym.Env):
         for i in range(len(self.other_vehicles_list)):
             self._get_plot_xy(self.other_vehicles_list[i])
 
+    def init_img_info(self):
+        self.done = False
+        self.action = None
+
     def setup_statistic(self):
         # only count current time
         self.road_traffic = defaultdict(int)
@@ -125,6 +129,7 @@ class Terminal_Env(gym.Env):
         # 3. get reward, terminal & get info
         total_reward, done = self.reward_handle.step(self.other_vehicles_list, self.ev_handle)
         self.done = done
+        self.action = action
         info = self._get_info()
         self.info = info
 
@@ -136,9 +141,9 @@ class Terminal_Env(gym.Env):
         
         return obs, total_reward, done, False, info
     
-    def reset(self, seed=None, options=None):
+    def reset(self, seed=None, options=None, OD=None):
         super().reset(seed=seed)
-        map_topo = self.ev_handle.reset(seed=seed)
+        map_topo = self.ev_handle.reset(seed=seed, OD=OD)
         self.map_topo = np.array(map_topo).reshape(4,)
         #self.map_topo = np.zeros((4,))
 
@@ -151,7 +156,8 @@ class Terminal_Env(gym.Env):
         obs = self._get_obs(0)
         self.obs = copy.deepcopy(obs)
         info = self._get_info()
-        self.done = False
+        self.info = info
+        self.init_img_info()
         return obs, info
 
     def close(self):
@@ -159,13 +165,13 @@ class Terminal_Env(gym.Env):
             pygame.display.quit()
             pygame.quit()
 
-    def render(self):
+    def render(self, **info_args):
         if self.render_mode == "rgb_array":
-            return self._render_frame()
+            return self._render_frame(**info_args)
         else:
-            self._render_frame()
+            self._render_frame(**info_args)
     
-    def _render_frame(self):
+    def _render_frame(self, **info_args):
         if self.window is None and self.render_mode == "human":
             width, height = np.array(self.map_size) 
             self.window = utils.init_render(700, 600)
@@ -173,7 +179,7 @@ class Terminal_Env(gym.Env):
         if self.clock is None and self.render_mode == "human":
             self.clock = pygame.time.Clock()
 
-        render_img = self.get_render_img(self.text_width)
+        render_img = self.get_render_img(self.text_width, **info_args)
     
         canvas = pygame.surfarray.make_surface(render_img.swapaxes(0, 1))
         scaled_canvas = pygame.transform.scale(canvas, (700, 600))
@@ -198,9 +204,13 @@ class Terminal_Env(gym.Env):
 
     def _get_obs(self, action: int):
         obs = {}
-        ev_curr_id, ev_prev_id = self.ev_handle._get_ev_loc_id()
-        obs['ev_curr_id'] = np.array([ev_curr_id]) if ev_curr_id else np.array([-1])
-        obs['ev_prev_id'] = np.array([ev_prev_id]) if ev_prev_id else np.array([-1])
+        history_point_id = self.ev_handle.history_point_id
+        if None in history_point_id:
+            assert history_point_id[-1] is None
+            print("history has None item")
+            # history_point_id[-1] = -1
+        obs['history_id'] = np.array(list(history_point_id))
+        #obs['ev_prev_id'] = np.array([ev_prev_id]) if ev_prev_id else np.array([-1])
         # obs['ev_direction'] = np.array(action).reshape(1,)      # 其实curr - prev就是direction
         obs['des_id'] = np.array([self.ev_handle.target_id])
         ov_id_list = []
@@ -227,7 +237,7 @@ class Terminal_Env(gym.Env):
         tmp_vehicle.history_point.append(node_id)
         return None
 
-    def get_render_img(self, text_width=300):
+    def get_render_img(self, text_width=300, **info_args):
         # plot map and get G (graph)
         fig, ax, G, id2plot_xy, plot_xy2id = utils.plot_map(self.plot_data, self.ax)
         self.ax = ax
@@ -246,17 +256,25 @@ class Terminal_Env(gym.Env):
             target_pos = id2plot_xy[self.ev_handle.target_id]
             self.ax.plot(target_pos[0], target_pos[1], color = 'green', marker = 's', markersize = 10)
             ev_curr_id, ev_prev_id = self.ev_handle._get_ev_loc_id()
-            if ev_curr_id:
+            history_id = self.ev_handle.history_point_id
+
+            if ev_curr_id is not None:
                 ev_curr_pos = id2plot_xy[ev_curr_id]
                 self.ax.plot(ev_curr_pos[0], ev_curr_pos[1], color = 'red', marker = '*', markersize = 10)
-            if ev_curr_id and ev_prev_id:
-                ev_prev_pos = id2plot_xy[ev_prev_id]
-                x, y = zip(ev_curr_pos, ev_prev_pos)
+            # if ev_curr_id is not None and ev_prev_id is not None:
+            xy_list = []
+            if not None in history_id:
+                for i in range(len(history_id)):
+                    tmp_pos = id2plot_xy[history_id[i]]
+                    xy_list.append(tmp_pos)
+                x, y = zip(*xy_list)
+                #ev_prev_pos = id2plot_xy[ev_prev_id]
+                #x, y = zip(ev_curr_pos, ev_prev_pos)
                 self.ax.plot(x, y, color='red')
 
         # fig to array & add info
         render_img = utils.figure_to_array(fig, self.map_size)
-        text_img = self._get_render_txt(render_img, text_width)
+        text_img = self._get_render_txt(render_img, text_width, **info_args)
         height, width, _ = render_img.shape
         render_img_info = np.ones((height, width + text_width, 3), dtype=np.uint8) * 255
         render_img_info[:height, :width] = render_img
@@ -286,31 +304,49 @@ class Terminal_Env(gym.Env):
         '''
         return render_img_info
 
-    def _get_render_txt(self, render_img:np.ndarray, text_width):
-        ev_curr_id, ev_prev_id = self.ev_handle._get_ev_loc_id()
+    def _get_render_txt(self, render_img:np.ndarray, text_width, **info_args):
+        # ev_curr_id, ev_prev_id = self.ev_handle._get_ev_loc_id()
         start_id = self.ev_handle.start_id
         des_id = self.ev_handle.target_id
-        ev_curr_id = -1 if ev_curr_id is None else ev_curr_id
-        ev_prev_id = -1 if ev_prev_id is None else ev_prev_id
+        #ev_curr_id = -1 if ev_curr_id is None else ev_curr_id
+        #ev_prev_id = -1 if ev_prev_id is None else ev_prev_id
+        history_id = self.ev_handle.history_point_id
         height, width, _ = render_img.shape
         text_img = np.ones((height, text_width, 3), dtype=np.uint8) * 255
         if self.info is None:
             return text_img
         info = self.info['reward_info']
         txt_t = []
-        txt_t1 = f'r_exc:{info["r_exc"]:5.2f}, r_spd:{info["r_spd"]:5.2f}'
-        #txt_t2 = f'r_spd:{info["r_spd"]:5.2f}'
+        txt_t1 = f'r_exc:{info["r_exc"]:5.2f}, r_timeout:{info["r_timeout"]:5.2f}'
         txt_t2 = f'r_t:{info["r_t"]:5.2f}, r_total:{info["r_total"]:5.2f}'
-        # txt_t4 = f'r_total:{info["r_total"]:5.2f}'
         txt_t3 = f'r_dir:{info["r_dir"]:5.2f}, r_arr:{info["r_arr"]:5.2f}'
-        # txt_t6 = f'r_arr:{info["r_arr"]:5.2f}'
         txt_t4 = f'r_dis:{info["r_dis"]:5.2f}, r_path:{info["r_path"]:5.2f}'
-        txt_t5 = f"done:{self.done}"
-        txt_t6 = f"ev_curr_id:{ev_curr_id}, ev_prev_id:{ev_prev_id}"
-        txt_t7 = f"start_id:{start_id}, des_id:{des_id}"
+        txt_t5 = f"done:{self.done}, action:{self.action}"
+        txt_t6 = f"start_id:{start_id}, des_id:{des_id}"
 
-
-        txt_t = [txt_t1, txt_t2, txt_t3, txt_t4, txt_t5, txt_t6, txt_t7]
+        # history id
+        history_len = len(history_id)
+        txt_histroy_list = [None for i in range(math.ceil(history_len / 2.0))]
+        for i in range(history_len):
+            if i % 2 == 0:
+                tmp_txt = f't-{history_len - i}: {history_id[i]},'
+                txt_histroy_list[int(i // 2)] = copy.deepcopy(tmp_txt)
+            else:
+                tmp_txt = txt_histroy_list[int(i // 2)] + f't-{history_len - i}: {history_id[i]}'
+                txt_histroy_list[int(i // 2)] = tmp_txt
+        
+        topo = info_args.get('topo')
+        action_prob = info_args.get('action_prob')
+        txt_t7 = f"topo:{topo} "
+        if action_prob is None:
+            txt_t8 = f"prev_a_prob:{action_prob}"
+        else:
+            txt_t8 = f"prev_a_prob: "
+            action_prob = action_prob.reshape(-1,)
+            for i in range(len(action_prob)):
+                tmp_ = float(action_prob[i])
+                txt_t8 += f"{tmp_:.2f} "
+        txt_t = [txt_t1, txt_t2, txt_t3, txt_t4, txt_t5, txt_t6, txt_t7, txt_t8] + txt_histroy_list
         for i in range(len(txt_t)):
             text_img = cv2.putText(text_img, txt_t[i], (0, 30*(i+1)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
         return text_img

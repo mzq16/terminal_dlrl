@@ -232,18 +232,22 @@ class WandbCallback(BaseCallback):
         cv2.imwrite(f"img_{self.num_timesteps}.jpg", arr_img)
 
 
-def init_callback_list(env, save_freq=100, save_path='data/checkpoint_noimg/', save_replay_buffer=False, wandb_flag=True, verbose=2):
+def init_callback_list(env, save_freq=100, save_path='./data/checkpoint_noimg/', save_replay_buffer=False, wandb_flag=True, verbose=2, cfg=None):
     '''
     verbose: 2就是什么信息都打印，0就都不打印，没1什么事，之后可以改
     '''
     callback_save = CheckpointCallback(save_freq=save_freq, save_path=save_path, verbose=verbose, save_replay_buffer=save_replay_buffer)
-    cfg = {
-        'wb_project': "terminal_noimg_test",
-        'wb_name': None,
-        'wb_notes': None, 
-        'wb_tags': None,
-    }
-    callback_wandb = WandbCallback(cfg, env, "data/vedeo", save_path, "data/buffer")
+    if wandb_flag:
+        if cfg is None:
+            cfg = {
+                'wb_project': "terminal_noimg_test",
+                'wb_name': None,
+                'wb_notes': None, 
+                'wb_tags': None,
+            }
+        else:
+            cfg = cfg
+        callback_wandb = WandbCallback(cfg, env, "./data/vedeo", save_path, "./data/buffer")
 
     # 这个callback list 看了看源码应该是可以嵌套的，因为callback list也是继承了BaseCallback，
     # 嵌套就是[callback1, [callback2,callback0]]，
