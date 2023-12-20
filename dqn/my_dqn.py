@@ -66,32 +66,21 @@ class my_dqn(DQN):
                 indice = np.where(topo_info < 0.5)[0]
                 a_list.append(np.random.choice(indice))
             action = np.array(a_list)
-            self.logger.record("random", True)
+            self.logger.record("debug/random", True)
         else:
             action, state = self.policy.predict(observation, state, episode_start, deterministic)
-            self.logger.record("random", False)
-        self.logger.record("topo_pred", observation['map_topo'])
-        self.logger.record("history_pred", observation["history_id"])
-        self.logger.record("desid_pred", observation["des_id"])
+            self.logger.record("debug/random", False)
+        self.logger.record("debug/topo_pred", observation['map_topo'])
+        self.logger.record("debug/history_pred", observation["history_id"])
+        self.logger.record("debug/desid_pred", observation["des_id"])
         return action, state
         
     def _on_step(self) -> None:
         super()._on_step()
-        # batch size,其实不是batchsize了，而是number env
-        action_probs = self.policy.q_net.prob_values
-        q_values = self.policy.q_net.q_values
-        if action_probs is not None and q_values is not None:
-            n_env = action_probs.shape[0]
-            action_entropy = 0
-            q_value_avg = 0
-            for i in range(n_env):
-                action_entropy += self.cal_entropy(action_probs[i])
-                q_value_avg += max(q_values[i])
-                action_entropy = action_entropy / n_env
-                q_value_avg = q_value_avg / n_env
-                self.logger.record(f"train/action_prob_{i}", action_entropy)
-                self.logger.record(f"train/q_value_qnet_{i}", q_value_avg)
-
+        # 写到callback的on_step了，因为dqn的on_step在store后面，callback的在前面，store的话就把last_obs给换了，
+        # 如果done了，store之前：obs就是new episode的初始obs，_last_obs就是上一个episode的倒数第二帧，
+        # store中会从info中找到一个termination obs，就是上一个episode的最后一帧，出错的那帧，所以放到了callback中
+        
     def cal_entropy(self, action_prob: np.ndarray):
         action_prob_revise = action_prob[action_prob != 0]
         return -np.sum(action_prob_revise * np.log2(action_prob_revise))

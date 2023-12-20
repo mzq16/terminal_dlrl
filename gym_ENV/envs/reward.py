@@ -36,7 +36,7 @@ class reward(object):
         if curr_id is not None:
             r_exc = 0
         else:
-            print("exceed")
+            print(f"exceed, curr_id: {curr_id}, prev_id:{prev_id}, des_id:{des_id}")
             r_exc = -3
             r_total = r_exc
             self.reward_info['r_exc'] = r_exc

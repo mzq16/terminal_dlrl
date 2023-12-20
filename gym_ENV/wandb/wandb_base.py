@@ -9,6 +9,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecEnv, sync_envs_norm
 from stable_baselines3.common.utils import safe_mean
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 import cv2
+from collections import defaultdict
 
 class WandbCallback(BaseCallback):
     def __init__(self, cfg, vec_env, video_path, ckpt_dir, buffer_dir):
@@ -37,6 +38,7 @@ class WandbCallback(BaseCallback):
         self._save_buffer_step = int(5e3)
 
         self.episodes = 0
+        self.all_envs_dict = defaultdict(list)
 
     def _init_callback(self):
         self.n_epoch = 0
@@ -57,76 +59,39 @@ class WandbCallback(BaseCallback):
 
     def _on_step(self) -> bool:
         # 被on_step调用，on_step在BaseCallback中，一般返回true，被rollout每一步调用
-        
+        # 此外由于on step都上传wandb，数据有一些太多了，导致wandb打开特别慢
+        # 所以这里就统计，用list存下来，上传放到rollout end
         infos = self.locals["infos"]
         info = infos[0]
         rewards = self.locals['rewards']
         dones = self.locals['dones']
         obs = self.locals['new_obs']
         
-        if "reward_info" in info.keys() and info["reward_info"]["r_exc"] < -5:
+        # 异常点检测，None检测
+        if info["reward_info"]["r_exc"] < -2:
             self._check_exc_situation()
         if dones[0] is True:
-            if info["reward_info"]["r_exc"] > -5:
+            if info["reward_info"]["r_exc"] > -2:
                 print("checked done not exc")
-            elif info["reward_info"]["r_arr"] < 10:
+            elif info["reward_info"]["r_arr"] < 3:
                 print("checked done not arr")
             else:
                 print(f"rewards:{rewards}, not right done situation")
-            
-        all_envs_dict = {"rollout/reward_avg_n_env": safe_mean(rewards)}
-        # for i in range(self.model.n_envs):
-        #    all_envs_dict[f'rollout/reward_{i}_env'] = rewards[i]
-        #wandb.log(all_envs_dict, step=self.model.num_timesteps)
-        for i in range(self.model.n_envs):
-            all_envs_dict[f'rollout/reward_{i}_env'] = rewards[i]
-            single_reward_info = infos[i].get('reward_info')
-            all_envs_dict[f"rollout/reward_{i}_env/done"] = int(dones[i])
-            for k, v in single_reward_info.items():
-                all_envs_dict[f'rollout/reward_{i}_env/' + k] = v
-            wandb.log(all_envs_dict, step=self.model.num_timesteps)
-
-        assert self.model.ep_info_buffer is not None
-        assert self.model.ep_success_buffer is not None
-        if len(self.model.ep_info_buffer) > 0 and len(self.model.ep_info_buffer[0]) > 0:
-            ep_reward_mean = safe_mean([ep_info["r"] for ep_info in self.model.ep_info_buffer])
-            ep_length_mean = safe_mean([ep_info["l"] for ep_info in self.model.ep_info_buffer])
-            wandb.log({
-                "rollout/ep_reward_mean": ep_reward_mean,
-                "rollout/ep_length_mean": ep_length_mean,
-            }, step=self.model.num_timesteps)
-
-
-        if self._eval_step > 0 and self.n_calls % self._eval_step == 0:
-            # Sync training and eval env if there is VecNormalize
-            if self.model.get_vec_normalize_env() is not None:
-                try:
-                    sync_envs_normalization(self.training_env, self.eval_env)
-                except AttributeError as e:
-                    raise AssertionError(
-                        "Training and eval env are not wrapped the same way, "
-                        "see https://stable-baselines3.readthedocs.io/en/master/guide/callbacks.html#evalcallback "
-                        "and warning above."
-                    ) from e
-
-            # Reset success rate buffer
-            self._is_success_buffer = []
-
-            episode_rewards, episode_lengths = evaluate_policy(
-                self.model,
-                self.vec_env,
-                n_eval_episodes=self._n_eval_episodes,
-                render=self._render,
-                deterministic=self._deterministic,
-                return_episode_rewards=False,
-                warn=self.warn,
-                callback=self._log_success_callback,
-            )
-            wandb.log({
-            "eval/ep_reward_mean": episode_rewards,
-            "eval/ep_length_mean": episode_lengths,
-        }, step=self.model.num_timesteps)
         
+        # 统计上传wandb的
+        # self.all_envs_dict["rollout/reward_avg_n_env"].append(safe_mean(rewards))     #只有一个环境
+        action_probs = self.model.policy.q_net.prob_values
+        q_values = self.model.policy.q_net.q_values
+        for i in range(self.model.n_envs):
+            self.all_envs_dict[f'rollout/reward_{i}_env'].append(rewards[i])
+            single_reward_info = infos[i].get('reward_info')
+            self.all_envs_dict[f"rollout/reward_{i}_env/done"].append(int(dones[i])) 
+            for k, v in single_reward_info.items():
+                self.all_envs_dict[f'rollout/reward_{i}_env/' + k].append(v) 
+            self.all_envs_dict[f"train/action_prob_{i}"].append(self.cal_entropy(action_probs[i]))
+            self.all_envs_dict[f"train/q_value_qnet_{i}"].append(max(q_values[i]))
+            # wandb.log(all_envs_dict, step=self.model.num_timesteps)
+                
         return True
 
     def _on_training_start(self) -> None:
@@ -138,10 +103,9 @@ class WandbCallback(BaseCallback):
         
     def _on_rollout_start(self):
         # 同上，父类有一个非隐调用
+        # train 没有end，所以把这个evaluate放这里，放step那里，每次rollout都得调用
+        self._evaluate()
         self.rollout_start_time = time.time()
-        #print(f"rollout_local:{self.locals.keys()}")
-        #print(f"rollout_globals:{self.globals.keys()}")
-        #print('rollout start')
 
     def _on_training_end(self) -> None:
         # 这个地方是learn的最后
@@ -157,6 +121,7 @@ class WandbCallback(BaseCallback):
         }, step=self.model.num_timesteps)
 
         # evaluate and save checkpoint
+        # 交给evaluate callback了
     
     def _on_rollout_end(self):
         rollout_time = time.time() - self.rollout_start_time
@@ -165,20 +130,30 @@ class WandbCallback(BaseCallback):
         if "rollout/exploration_rate" in self.model.logger.name_to_value.keys():
             logger_dict["rollout/exploration_rate"] = self.model.logger.name_to_value["rollout/exploration_rate"]
 
+        # get rollout param history
+        for k, v in self.all_envs_dict.items():
+            if k.split('/')[0] != 'debug': # 除debug的以外，上传
+                logger_dict[k] = safe_mean(v)
+        
+        # get ep log
+        assert self.model.ep_info_buffer is not None
+        assert self.model.ep_success_buffer is not None
+        if len(self.model.ep_info_buffer) > 0 and len(self.model.ep_info_buffer[0]) > 0:
+            ep_reward_mean = safe_mean([ep_info["r"] for ep_info in self.model.ep_info_buffer])
+            ep_length_mean = safe_mean([ep_info["l"] for ep_info in self.model.ep_info_buffer])
+            logger_dict["rollout/ep_reward_mean"] = ep_reward_mean
+            logger_dict["rollout/ep_length_mean"] = ep_length_mean
+
         # 因为train 里面没有callback，所以将一些网络更新的东西放在这里
         # 这里表示rollout结束，train网络的开始，callback中的traing start不是train网络的开始，而是所有的开始
-        if "train/loss" in self.model.logger.name_to_value.keys():
-           logger_dict["train/loss"] = self.model.logger.name_to_value["train/loss"]
-        if "train/current_q_values" in self.model.logger.name_to_value.keys():
-            logger_dict["train/current_q_values"] = self.model.logger.name_to_value["train/current_q_values"]
-        if "train/action_prob" in self.model.logger.name_to_value.keys():
-            logger_dict["train/action_prob"] = self.model.logger.name_to_value["train/action_prob"]
-        for k, v in self.model.logger.name_to_value.items():
-            if k != "topo_pred" or k != "random":
-                logger_dict[f"test_logger_dict/" + k] = v
+        # 这下面的代码if什么的可以用dict中的get
+        
+        logger_dict["train/loss"] = self.model.logger.name_to_value.get("train/loss")
+        logger_dict["train/current_q_values"] = self.model.logger.name_to_value.get("train/current_q_values")
         wandb.log(logger_dict, step=self.num_timesteps)
 
         # one episode
+        # 至今好像还没有episode的数据
         if "time/episodes" in self.model.logger.name_to_value.keys():
             episodes = self.model.logger.name_to_value["time/episodes"]
             print(f"start eposiode {episodes}")
@@ -209,28 +184,63 @@ class WandbCallback(BaseCallback):
     def _check_exc_situation(self):
         infos = self.locals["infos"]
         info = infos[0]
+        cu_id, pr_id = info["ev_loc"]
         rewards = self.locals['rewards']
         dones = self.locals['dones']
-        obs = self.locals['new_obs']
-        if "random" in self.model.logger.name_to_value.keys():
-                random_ = self.model.logger.name_to_value['random']
-        else:
-            random_ = None
+        new_obs = self.locals['new_obs']
         actions = self.locals['actions']
-        cu_id, pr_id = info["ev_loc"]
+        obs = self.model._last_obs      # new obs就是新的episode了，这个是旧的倒数第二帧
+        history_id = obs.get("history_id")
         q_values = self.model.policy.q_net.q_values
         prob_values = self.model.policy.q_net.prob_values
         topo_mask = self.model.policy.q_net.topo_mask
-        topo_pred = self.model.logger.name_to_value['topo_pred']
-        evid_pred = self.model.logger.name_to_value['evid_pred']
-        desid_pred = self.model.logger.name_to_value['desid_pred']
-        print(f"q_value_net:{q_values}, prob_value_net:{prob_values}, topo_mask_net:{topo_mask}, \
-                dones:{dones}, random_pred:{random_}, topo_pred:{topo_pred}, evid_pred:{evid_pred}, desid_pred:{desid_pred}")
-        print(f"action:{actions}, curr_id:{cu_id}, prev_id:{pr_id}, \
-                numstep:{self.num_timesteps}, obs_evid:{obs['ev_curr_id']}, obs_desid:{obs['des_id']}, obs_topomap:{obs['map_topo']}")
+        random_ = self.model.logger.name_to_value.get("debug/random")
+        topo_pred = self.model.logger.name_to_value.get('debug/topo_pred')
+        history_pred = self.model.logger.name_to_value.get("debug/history_pred")    # 原本有的，后来变成history了
+        desid_pred = self.model.logger.name_to_value.get('debug/desid_pred')
+        print(f"policy_value: q_value_net:{q_values}, prob_value_net:{prob_values}, topo_mask_net:{topo_mask}")
+        print(f"logger: topo_pred:{topo_pred}, history_pred:{history_pred}, desid_pred:{desid_pred}, random_pred:{random_}")
+        print(f"locals: action:{actions}, dones:{dones}, reward:{rewards}, curr_id:{cu_id}, prev_id:{pr_id}, \
+              numstep:{self.num_timesteps}, obs_desid:{obs['des_id']}, obs_topomap:{obs['map_topo']}")
+        print(f"history_id:{history_id}")
         arr_img = self.model.env.render()
-        cv2.imwrite(f"img_{self.num_timesteps}.jpg", arr_img)
+        cv2.imwrite(f"img_{self.num_timesteps}_new.jpg", arr_img)
 
+    def _evaluate(self):
+        # n_calls其实在trian那边，_n_updates的更新跟着gradient step走，其实可以放在rollout那边，start或end都行，因为roll的时候网络这边不变
+        if self._eval_step > 0 and self.n_calls % self._eval_step == 0:
+            # Sync training and eval env if there is VecNormalize
+            if self.model.get_vec_normalize_env() is not None:
+                try:
+                    sync_envs_normalization(self.training_env, self.eval_env)
+                except AttributeError as e:
+                    raise AssertionError(
+                        "Training and eval env are not wrapped the same way, "
+                        "see https://stable-baselines3.readthedocs.io/en/master/guide/callbacks.html#evalcallback "
+                        "and warning above."
+                    ) from e
+
+            # Reset success rate buffer
+            self._is_success_buffer = []
+
+            episode_rewards, episode_lengths = evaluate_policy(
+                self.model,
+                self.vec_env,
+                n_eval_episodes=self._n_eval_episodes,
+                render=self._render,
+                deterministic=self._deterministic,
+                return_episode_rewards=False,
+                warn=self.warn,
+                callback=self._log_success_callback,
+            )
+            wandb.log({
+            "eval/ep_reward_mean": episode_rewards,
+            "eval/ep_length_mean": episode_lengths,
+        }, step=self.model.num_timesteps)
+
+    def cal_entropy(self, action_prob: np.ndarray):
+        action_prob_revise = action_prob[action_prob != 0]
+        return -np.sum(action_prob_revise * np.log2(action_prob_revise))
 
 def init_callback_list(env, save_freq=100, save_path='./data/checkpoint_noimg/', save_replay_buffer=False, wandb_flag=True, verbose=2, cfg=None):
     '''

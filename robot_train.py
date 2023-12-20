@@ -160,17 +160,17 @@ if __name__ == "__main__":
         "net_arch": [64, 64, 16],
     }
     wandb_kwargs = {
-        'wb_project': "terminal_ev_history",
+        'wb_project': "terminal_test_new_wandb",
         'wb_name': None,
         'wb_notes': None, 
         'wb_tags': None,
     }
     train = True
-    robot = myrobot(base_path='./data/with_history/', buffer_step=None, ckpt_step=None, policy_kwargs=policy_kwargs, wandb_kwargs=wandb_kwargs)
+    robot = myrobot(base_path='./data/test_new_wandb/', buffer_step=None, ckpt_step=None, policy_kwargs=policy_kwargs, wandb_kwargs=wandb_kwargs)
     env = robot.set_env()
     
     model, callback_list = robot.set_model(env=env, wandb_flag=train)
     if train:
-        robot.learn(model=model, callback_list=callback_list, env=env, train_from_scratch=False)
+        robot.learn(model=model, callback_list=callback_list, env=env, train_from_scratch=True)
     else:
         robot.evaluate()
