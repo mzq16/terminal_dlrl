@@ -1,9 +1,13 @@
 import stable_baselines3 as sb3
 from stable_baselines3 import DQN
+from dqn.my_dqn import my_dqn
+from dqn.my_policy import myPolicy, myQNetwork
 import gymnasium as gym
 import gym_ENV
 import time
 import pygame
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecEnv
+import cv2
 
 
 def train_CartPole():
@@ -24,6 +28,20 @@ def train_CartPole():
         if terminated or truncated:
             obs, info = env.reset()
 
+def test_multi_env():
+    env = gym.make("CartPole-v1", render_mode="human")
+    def make_env(env_id, rank, seed=0):
+        def _init():
+            env = gym.make(env_id)
+            env.seed(seed + rank)
+            return env
+        return _init
+    env_id = 'CartPole-v1'
+    num_envs = 4
+    a = {}
+    env = SubprocVecEnv([make_env(env_id, i) for i in range(num_envs)], **a)
+    
+
 def should_quit():
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -34,6 +52,13 @@ def should_quit():
             elif event.key == pygame.K_c:
                 return 2
     return 0
+
+def use_my_dqn():
+    env_base = gym.make('Terminal_Env-v0', num_vehicle = 10, map_size = [1200, 700], 
+                    render_mode = 'rgb_array', seed = 24, text_width = 400,
+                    model_arg = {'input_dim': 2, 'hidden_dim': 64, 'output_dim': 2, 'num_layers': 2,},
+                 )
+    model = DQN(myPolicy, env_base, verbose=1)
 
 def test():
     '''
@@ -73,6 +98,17 @@ def test():
             break
     env_base.close()
 
+def test_render():
+    env = gym.make('Terminal_Env-v0', num_vehicle = 10, map_size = [1200, 700], 
+               render_mode = 'rgb_array', seed = 24, text_width = 400,
+               model_arg = {'input_dim': 2, 'hidden_dim': 64, 'output_dim': 2, 'num_layers': 2,},
+            )
+    obs, info = env.reset()
+    env.get_wrapper_attr('ev_handle').start_id = 0
+    env.get_wrapper_attr('ev_handle').target_id = 2
+    arr = env.render()
+    cv2.imwrite('dd.jpg',arr)
+
 def main():
     '''
     train
@@ -84,7 +120,7 @@ def main():
     4: np.array([1, 0]),
     0:stop, 1:up, 2:down, 3:left, 4:right
     '''
-    env_base = gym.make('gym_ENV/Terminal_Env-v0', num_vehicle = 10, map_size = [1200, 700], 
+    env_base = gym.make('Terminal_Env-v0', num_vehicle = 10, map_size = [1200, 700], 
                     render_mode = 'rgb_array', seed = 24, text_width = 400,
                     model_arg = {'input_dim': 2, 'hidden_dim': 64, 'output_dim': 2, 'num_layers': 2,},
                     )
@@ -94,4 +130,6 @@ def main():
         
 
 if __name__ == '__main__':
-    test()
+    #test()
+    #test_multi_env()
+    test_render()

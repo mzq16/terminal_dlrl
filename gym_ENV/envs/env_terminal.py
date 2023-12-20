@@ -208,7 +208,7 @@ class Terminal_Env(gym.Env):
         if None in history_point_id:
             assert history_point_id[-1] is None
             print("history has None item")
-            # history_point_id[-1] = -1
+            history_point_id[-1] = -1
         obs['history_id'] = np.array(list(history_point_id))
         #obs['ev_prev_id'] = np.array([ev_prev_id]) if ev_prev_id else np.array([-1])
         # obs['ev_direction'] = np.array(action).reshape(1,)      # 其实curr - prev就是direction
