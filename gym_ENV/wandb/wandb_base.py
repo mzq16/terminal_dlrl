@@ -28,7 +28,7 @@ class WandbCallback(BaseCallback):
         self.vec_env = vec_env
         
         # 一些eval参数
-        self._eval_step = int(1e5)
+        self._eval_step = int(1e4)
         self._n_eval_episodes = 1
         self.warn = True
         self._render = False

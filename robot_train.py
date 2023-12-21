@@ -1,6 +1,7 @@
 
 import copy
 import gymnasium as gym
+from networkx import project
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecEnv
 import torch
 from tqdm import tqdm
@@ -54,8 +55,8 @@ class myrobot(object):
         callback_list = init_callback_list(env = env, save_path=self.base_path, save_freq = 5e3, save_replay_buffer=True, 
                                            verbose=0, wandb_flag=wandb_flag, cfg=self.wandb_kwargs)
         
-        model = my_dqn(myPolicy, env, verbose=0, buffer_size=100000, learning_starts=0, train_freq=(10,'step'), gradient_steps=20,
-                    target_update_interval=20, batch_size=4096, learning_rate=1e-6, policy_kwargs=self.policy_kwargs, device=torch.device(1))
+        model = my_dqn(myPolicy, env, verbose=0, buffer_size=100000, learning_starts=0, train_freq=(1000,'step'), gradient_steps=20,
+                    target_update_interval=400, batch_size=4096, learning_rate=1e-6, policy_kwargs=self.policy_kwargs, device=torch.device(1))
         model.set_logger(new_logger)
         self.callback = callback_list
         return model, callback_list
@@ -65,7 +66,7 @@ class myrobot(object):
             model.learn(total_timesteps=5e6, log_interval=5000, progress_bar=True, callback=callback_list, reset_num_timesteps=True,)
         else:
             model.load_replay_buffer(self.latest_buffer_path)
-            model = model.load(self.latest_ckpt_path, env=env, buffer_size=100000, learning_starts=0, train_freq=(100,'step'), gradient_steps=20,
+            model = model.load(self.latest_ckpt_path, env=env, buffer_size=100000, learning_starts=0, train_freq=(1000,'step'), gradient_steps=20,
                     target_update_interval=400, batch_size=4096, learning_rate=1e-6, device=torch.device(1))
             model.learn(total_timesteps=5e6, log_interval=5000, progress_bar=True, callback=callback_list, reset_num_timesteps=False,)
 
@@ -159,14 +160,15 @@ if __name__ == "__main__":
         "features_extractor_kwargs": {"net_arch":[8,32,16], },
         "net_arch": [64, 64, 16],
     }
+    project_name = "test_with_routes"
     wandb_kwargs = {
-        'wb_project': "terminal_test_new_wandb",
+        'wb_project': f"terminal_{project_name}",
         'wb_name': None,
         'wb_notes': None, 
         'wb_tags': None,
     }
     train = True
-    robot = myrobot(base_path='./data/test_new_wandb/', buffer_step=None, ckpt_step=None, policy_kwargs=policy_kwargs, wandb_kwargs=wandb_kwargs)
+    robot = myrobot(base_path=f'./data/{project_name}/', buffer_step=None, ckpt_step=None, policy_kwargs=policy_kwargs, wandb_kwargs=wandb_kwargs)
     env = robot.set_env()
     
     model, callback_list = robot.set_model(env=env, wandb_flag=train)

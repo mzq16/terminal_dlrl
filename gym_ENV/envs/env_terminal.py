@@ -19,6 +19,7 @@ from .other_vehicle import init_other_vehicles
 from .other_vehicle import init_lstm_model
 from .reward import reward
 import matplotlib.pyplot as plt
+import networkx as nx
 
 
 '''
@@ -35,12 +36,15 @@ class Terminal_Env(gym.Env):
     def __init__(self, num_vehicle:int = 10, map_size:list = [1200, 720], 
                  render_mode = 'rgb_array', seed = 24, text_width = 400,
                  model_arg = {'input_dim': 2, 'hidden_dim': 64, 'output_dim': 2, 'num_layers': 2,},
+                 route_number = 1, route_length = 5, 
                  ) -> None:
         super().__init__()
         self.current_directory = os.path.dirname(os.path.abspath(__file__))
         self.number_v = num_vehicle
         self.text_width = text_width
         self.obs = None
+        self.route_number = route_number
+        self.route_length = route_length
         
         self.map_size = map_size
         self.prev_action = np.array([0])
@@ -77,6 +81,7 @@ class Terminal_Env(gym.Env):
             "ov_id": gym.spaces.Box(low=0, high=1000, shape=(self.number_v, ), dtype=np.int64),
             "des_id": gym.spaces.Box(low=0, high=1000, shape=(1,), dtype=np.int64),
             "map_topo": gym.spaces.Box(low=0, high=1, shape=(4,), dtype=np.int64),
+            "routes": gym.spaces.Box(low=0, high=1000, shape=(route_number, route_length), dtype=np.int64),
             }
         )
 
@@ -127,14 +132,16 @@ class Terminal_Env(gym.Env):
             self._get_plot_xy(tmp_vehicle)      # find all plot xy coords and put into self.plot_xys
 
         # 3. get reward, terminal & get info
-        total_reward, done = self.reward_handle.step(self.other_vehicles_list, self.ev_handle)
+        obs = self._get_obs(action)
+        total_reward, done = self.reward_handle.step(self.other_vehicles_list, self.ev_handle, obs["routes"])
         self.done = done
         self.action = action
         info = self._get_info()
         self.info = info
 
         # 2. get world state (obervation), include background vehicle movement
-        obs = self._get_obs(action)
+        # 这下面的数据都有可能出现ev loc为None的情况，因此需要考虑
+        
         self.obs = copy.deepcopy(obs)
         
         # get obs 一般在info前，紧接着action。不过这里obs包括了info reward，所以就放到后面了
@@ -151,9 +158,8 @@ class Terminal_Env(gym.Env):
         for i in range(self.number_v):
             # 实际上因为该问题的特殊性，这里的ov reset是None，因为ov的路径是根据历史路径来的，所以就不reset历史路径了
             self.other_vehicles_list[i].reset()
-
-        self.reward_handle.reset(self.ev_handle.start_id, self.ev_handle.target_id)
         obs = self._get_obs(0)
+        self.reward_handle.reset(self.ev_handle.start_id, self.ev_handle.target_id, obs["routes"])
         self.obs = copy.deepcopy(obs)
         info = self._get_info()
         self.info = info
@@ -220,6 +226,8 @@ class Terminal_Env(gym.Env):
             ov_id_list.append(self.other_vehicles_list[i].curr_id)
         obs['ov_id'] = np.array(ov_id_list)
         obs['map_topo'] = self.map_topo
+        tmp_paths = self._get_routes(num_routes=self.route_number, len_routes=self.route_length)
+        obs["routes"] = np.array(tmp_paths)
         return obs
 
     def _get_info(self):
@@ -236,6 +244,26 @@ class Terminal_Env(gym.Env):
         tmp_vehicle.curr_id = node_id
         tmp_vehicle.history_point.append(node_id)
         return None
+
+    def _get_routes(self, num_routes: int = 2, len_routes: int = 5):
+        shortest_paths = []
+        if self.ev_handle.current_id is None:
+            for i in range(num_routes):
+                shortest_paths.append([-1 for _ in range(len_routes)])
+            return shortest_paths
+        
+        for path in nx.shortest_simple_paths(self.G, source=self.ev_handle.current_id, target=self.ev_handle.target_id):
+            shortest_paths.append(path)
+            if len(shortest_paths) == num_routes:
+                break
+        # padding
+        while num_routes > len(shortest_paths):
+            shortest_paths.append([-1 for _ in range(len_routes)])
+        # padding
+        for i in range(num_routes):
+            while len(shortest_paths[i]) < len_routes:
+                 shortest_paths[i].append(-1)
+        return shortest_paths
 
     def get_render_img(self, text_width=300, **info_args):
         # plot map and get G (graph)

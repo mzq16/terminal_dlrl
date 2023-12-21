@@ -113,8 +113,8 @@ class ego_vehicle(object):
         self._target_id = int(target_point_id)
         self.start_id = int(start_point_id) if start_point_id is not None \
             else random.choice(list(range(len(self.id2plot_xy))).remove(target_point_id))
-        self.current_id = self.start_id
-        self.current_position = self.id2plot_xy[self.current_id]
+        self._current_id = self.start_id
+        self.current_position = self.id2plot_xy[self._current_id]
         self.history_inputxy.append(self.current_position)
         for i in range(self.history_len):
             self._history_point_id.append(self.start_id)
@@ -123,7 +123,7 @@ class ego_vehicle(object):
 
     # 执行一步的操作
     def step(self, action, random_flag = False):
-        if self.current_id is None:
+        if self._current_id is None:
             raise ValueError("step currid is none")
         #neighbour_ids = list(self.G.neighbors(self.current_id))
         #neighbour_id2plot_xys = {neighbour_id: self.id2plot_xy[neighbour_id] for neighbour_id in neighbour_ids}
@@ -139,10 +139,10 @@ class ego_vehicle(object):
             # pick up correct option
             all_are_none = all(element is None for element in self._aligned_option)
             if all_are_none:
-                raise ValueError(f"no ways of node {self.current_id}")
+                raise ValueError(f"no ways of node {self._current_id}")
             while next_point_id is None:
                 next_point_id = np.random.choice(self._aligned_option)
-        self.current_id = next_point_id
+        self._current_id = next_point_id
         if next_point_id is None:
             print(self._history_point_id)
         self.current_position = self.id2plot_xy[next_point_id] if next_point_id is not None else None
@@ -164,7 +164,7 @@ class ego_vehicle(object):
         self.history_inputxy.clear()
         self._history_point_id.clear()
         self.histroy_direction.clear()
-        self.current_id = None
+        self._current_id = None
         self.start_id = None
         self._target_id = None
 
@@ -186,20 +186,16 @@ class ego_vehicle(object):
         return adjacent_point_id
 
     def get_aligned_option(self):
-        if self.current_id is None:
+        if self._current_id is None:
             return [None for _ in range(4)]
         try:
-            neighbour_ids = list(self.G.neighbors(self.current_id))
+            neighbour_ids = list(self.G.neighbors(self._current_id))
         except:
-            print(self.current_id)
+            print(self._current_id)
         neighbour_id2plot_xys = {neighbour_id: self.id2plot_xy[neighbour_id] for neighbour_id in neighbour_ids}
-        curr_plot_xy = self.id2plot_xy[self.current_id]
+        curr_plot_xy = self.id2plot_xy[self._current_id]
         aligned_option = self.align_dir_from_angle(neighbour_id_xys = neighbour_id2plot_xys, curr_xy=curr_plot_xy)
         return aligned_option
-
-    @property
-    def aligned_option(self):
-        return self._aligned_option
 
     def id2xy(self, id):
         # (1) id to plot xy
@@ -209,7 +205,7 @@ class ego_vehicle(object):
         return xy
 
     def _get_ev_loc_id(self):
-        return self.current_id, self._history_point_id[-2]
+        return self._current_id, self._history_point_id[-2]
     
     @property
     def history_point_id(self):
@@ -218,3 +214,12 @@ class ego_vehicle(object):
     @property
     def target_id(self):
         return self._target_id
+    
+    @property
+    def aligned_option(self):
+        return self._aligned_option
+    
+    @property
+    def current_id(self):
+        self._current_id
+
