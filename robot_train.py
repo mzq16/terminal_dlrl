@@ -52,11 +52,12 @@ class myrobot(object):
         # set up logger
         new_logger = configure(tmp_path, ["stdout", "csv", "tensorboard"])
         
-        callback_list = init_callback_list(env = env, save_path=self.base_path, save_freq = 5e3, save_replay_buffer=True, 
+        callback_list = init_callback_list(env = env, save_path=self.base_path, save_freq = 2e4, save_replay_buffer=True, 
                                            verbose=0, wandb_flag=wandb_flag, cfg=self.wandb_kwargs)
         
         model = my_dqn(myPolicy, env, verbose=0, buffer_size=100000, learning_starts=0, train_freq=(1000,'step'), gradient_steps=20,
-                    target_update_interval=400, batch_size=4096, learning_rate=1e-6, policy_kwargs=self.policy_kwargs, device=torch.device(1))
+                    target_update_interval=400, batch_size=4096, learning_rate=5e-5, policy_kwargs=self.policy_kwargs, device=torch.device(1),
+                    stats_window_size=200)
         model.set_logger(new_logger)
         self.callback = callback_list
         return model, callback_list
@@ -141,6 +142,7 @@ class myrobot(object):
             if done:
                 episode_step += 1
                 obs, info = self.env.reset()
+                self._last_obs = copy.deepcopy(obs)
                 print(f"length: {time_step}, total_reward: {total_reward}")
                 total_reward = 0
                 time_step = 0
@@ -160,14 +162,14 @@ if __name__ == "__main__":
         "features_extractor_kwargs": {"net_arch":[8,32,16], },
         "net_arch": [64, 64, 16],
     }
-    project_name = "test_with_routes"
+    project_name = "test_with_routes_ver1"
     wandb_kwargs = {
         'wb_project': f"terminal_{project_name}",
         'wb_name': None,
         'wb_notes': None, 
         'wb_tags': None,
     }
-    train = True
+    train = False
     robot = myrobot(base_path=f'./data/{project_name}/', buffer_step=None, ckpt_step=None, policy_kwargs=policy_kwargs, wandb_kwargs=wandb_kwargs)
     env = robot.set_env()
     

@@ -263,8 +263,11 @@ class Terminal_Env(gym.Env):
             shortest_paths.append([-1 for _ in range(len_routes)])
         # padding
         for i in range(num_routes):
-            while len(shortest_paths[i]) < len_routes:
-                 shortest_paths[i].append(-1)
+            if len(shortest_paths[i]) > len_routes:
+                shortest_paths[i] = shortest_paths[i][:len_routes]
+            else:
+                while len(shortest_paths[i]) < len_routes:
+                    shortest_paths[i].append(-1)
         return shortest_paths
 
     def get_render_img(self, text_width=300, **info_args):
@@ -301,7 +304,18 @@ class Terminal_Env(gym.Env):
                 #ev_prev_pos = id2plot_xy[ev_prev_id]
                 #x, y = zip(ev_curr_pos, ev_prev_pos)
                 self.ax.plot(x, y, color='red')
-
+        
+        # plot routes
+        routes = self.obs.get("routes")
+        if routes is not None:
+            curr_route = routes[0]
+            xy_list = []
+            for i in range(self.route_length):
+                if curr_route[i] != -1:
+                    xy_list.append(id2plot_xy[curr_route[i]])
+            x, y = zip(*xy_list)
+            self.ax.plot(x, y, color='g')
+        
         # fig to array & add info
         render_img = utils.figure_to_array(fig, self.map_size)
         text_img = self._get_render_txt(render_img, text_width, **info_args)

@@ -221,5 +221,5 @@ class ego_vehicle(object):
     
     @property
     def current_id(self):
-        self._current_id
+        return self._current_id
 
