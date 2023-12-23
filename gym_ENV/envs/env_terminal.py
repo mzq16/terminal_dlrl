@@ -77,7 +77,7 @@ class Terminal_Env(gym.Env):
             #"ev_prev_id": gym.spaces.Box(low=0, high=255, shape=(1,), dtype=np.int64),
             "history_id": gym.spaces.Box(low=0, high=255, shape=(5,), dtype=np.int64),       
             # "ev_direction": gym.spaces.Box(low=0, high=3, shape=(1,), dtype=np.int32),  # 4 direction, no stop
-            # "render_img": gym.spaces.Box(low=0, high=255, shape=(map_size[1], map_size[0] + text_width, 3), dtype=np.uint8),
+            "render_img": gym.spaces.Box(low=0, high=255, shape=(map_size[1], map_size[0], 3), dtype=np.uint8),
             "ov_id": gym.spaces.Box(low=0, high=1000, shape=(self.number_v, ), dtype=np.int64),
             "des_id": gym.spaces.Box(low=0, high=1000, shape=(1,), dtype=np.int64),
             "map_topo": gym.spaces.Box(low=0, high=1, shape=(4,), dtype=np.int64),
@@ -228,6 +228,8 @@ class Terminal_Env(gym.Env):
         obs['map_topo'] = self.map_topo
         tmp_paths = self._get_routes(num_routes=self.route_number, len_routes=self.route_length)
         obs["routes"] = np.array(tmp_paths)
+        _, img = self.get_render_img()
+        obs["render_img"] = img
         return obs
 
     def _get_info(self):
@@ -288,7 +290,7 @@ class Terminal_Env(gym.Env):
 
             if ev_curr_id is not None:
                 ev_curr_pos = id2plot_xy[ev_curr_id]
-                self.ax.plot(ev_curr_pos[0], ev_curr_pos[1], color = 'red', marker = '*', markersize = 10)
+                self.ax.plot(ev_curr_pos[0], ev_curr_pos[1], color = 'red', marker = '*', markersize = 20)
             # if ev_curr_id is not None and ev_prev_id is not None:
             xy_list = []
             if not None in history_id:
@@ -330,7 +332,7 @@ class Terminal_Env(gym.Env):
         final_render_img[:height, :width] = render_img
         final_render_img[:height, width:width+text_width] = text_img
         '''
-        return render_img_info
+        return render_img_info, render_img
 
     def _get_render_txt(self, render_img:np.ndarray, text_width, **info_args):
         # ev_curr_id, ev_prev_id = self.ev_handle._get_ev_loc_id()
