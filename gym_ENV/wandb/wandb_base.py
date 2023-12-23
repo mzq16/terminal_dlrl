@@ -9,6 +9,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecEnv, sync_envs_norm
 from stable_baselines3.common.utils import safe_mean
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 import cv2
+import copy
 from collections import defaultdict
 
 class WandbCallback(BaseCallback):
@@ -25,18 +26,17 @@ class WandbCallback(BaseCallback):
         self._buffer_dir.mkdir(parents=True, exist_ok=True)
 
         wandb.init(project=cfg['wb_project'], name=cfg['wb_name'], notes=cfg['wb_notes'], tags=cfg['wb_tags'])
-        self.vec_env = vec_env
-        
+        # self.vec_env = vec_env
+        eval_env = copy.deepcopy(vec_env)
+        if not isinstance(eval_env, VecEnv):
+            eval_env = DummyVecEnv([lambda: eval_env])
+        self.eval_env = eval_env
         # 一些eval参数
         self._eval_step = int(1e4)
-        self._n_eval_episodes = 1
+        self._n_eval_episodes = 2
         self.warn = True
         self._render = False
         self._deterministic = True
-        #self._buffer_step = int(1e4)
-        self._save_step = int(1e3)
-        self._save_buffer_step = int(5e3)
-
         self.episodes = 0
         self.all_envs_dict = defaultdict(list)
 
@@ -104,6 +104,7 @@ class WandbCallback(BaseCallback):
     def _on_rollout_start(self):
         # 同上，父类有一个非隐调用
         # train 没有end，所以把这个evaluate放这里，放step那里，每次rollout都得调用
+        # 破案了，evaluate之后就会出现None的情况，大概率是没有reset
         self._evaluate()
         self.rollout_start_time = time.time()
 
@@ -225,7 +226,7 @@ class WandbCallback(BaseCallback):
 
             episode_rewards, episode_lengths = evaluate_policy(
                 self.model,
-                self.vec_env,
+                self.eval_env,
                 n_eval_episodes=self._n_eval_episodes,
                 render=self._render,
                 deterministic=self._deterministic,
