@@ -94,7 +94,7 @@ class ego_vehicle(object):
     def __init__(self, G, plot_xy2id, id2plot_xy, start_point_id = None, target_point_id = 453, history_len = 5):
         self.history_inputxy = deque(maxlen = 10)         # useless
         self._history_point_id = deque(maxlen = history_len)       # include curr_id and prev_ids
-        self.histroy_direction = deque(maxlen = history_len)        # include curr_dir and prev_dir
+        self._histroy_action = deque(maxlen = history_len)        # include curr_dir and prev_dir
         self.history_len = history_len
         self.plot_xy2id = plot_xy2id
         self.id2plot_xy = id2plot_xy
@@ -116,9 +116,9 @@ class ego_vehicle(object):
         self._current_id = self.start_id
         self.current_position = self.id2plot_xy[self._current_id]
         self.history_inputxy.append(self.current_position)
-        for i in range(self.history_len):
+        for _ in range(self.history_len):
             self._history_point_id.append(self.start_id)
-            self.histroy_direction.append(np.array([0, 0]))
+            self._histroy_action.append(np.array([0, 0]))
         self._aligned_option = self.get_aligned_option()
 
     # 执行一步的操作
@@ -134,7 +134,7 @@ class ego_vehicle(object):
             action = int(action)
         assert action < 4, "error action in aligned options"
         next_point_id = self._aligned_option[action]
-        self.histroy_direction.append(self._action_to_direction[action])
+        
         if random_flag:
             # pick up correct option
             all_are_none = all(element is None for element in self._aligned_option)
@@ -148,6 +148,7 @@ class ego_vehicle(object):
         self.current_position = self.id2plot_xy[next_point_id] if next_point_id is not None else None
         self.history_inputxy.append(self.current_position)
         self._history_point_id.append(next_point_id)
+        self._histroy_action.append(action)
         self._aligned_option = self.get_aligned_option()
         return [int(i is None) for i in self._aligned_option]
 
@@ -163,7 +164,7 @@ class ego_vehicle(object):
     def destroy(self):
         self.history_inputxy.clear()
         self._history_point_id.clear()
-        self.histroy_direction.clear()
+        self._histroy_action.clear()
         self._current_id = None
         self.start_id = None
         self._target_id = None
@@ -217,6 +218,10 @@ class ego_vehicle(object):
     def history_point_id(self):
         return self._history_point_id
     
+    @property
+    def history_action(self):
+        return self._histroy_action
+
     @property
     def target_id(self):
         return self._target_id
