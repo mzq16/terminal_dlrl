@@ -80,7 +80,7 @@ class Terminal_Env(gym.Env):
             {
             #"ev_curr_id": gym.spaces.Box(low=0, high=255, shape=(1,), dtype=np.int64),       
             #"ev_prev_id": gym.spaces.Box(low=0, high=255, shape=(1,), dtype=np.int64),
-            "history_id": gym.spaces.Box(low=0, high=255, shape=(5,), dtype=np.int64),       
+            "history_id": gym.spaces.Box(low=0, high=1000, shape=(5,), dtype=np.int64),       
             # "ev_direction": gym.spaces.Box(low=0, high=3, shape=(1,), dtype=np.int32),  # 4 direction, no stop
             "render_img": gym.spaces.Box(low=0, high=255, shape=(map_size[1], map_size[0], 3), dtype=np.uint8),
             "ov_id": gym.spaces.Box(low=0, high=1000, shape=(self.number_v, ), dtype=np.int64),
