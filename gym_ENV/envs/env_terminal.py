@@ -1,9 +1,12 @@
 from typing import List, Optional, Union
+from git import Tree
 import gymnasium as gym
 from collections import defaultdict
 import numpy as np
 import math
 import random
+
+from pyparsing import col
 from . import utils
 import cv2
 import pygame
@@ -21,6 +24,7 @@ from .reward import reward
 import matplotlib.pyplot as plt
 import networkx as nx
 
+plt.ioff()
 
 '''
 action:
@@ -28,7 +32,6 @@ x_offsets = [0, 0, 0, -1, 1]
 y_offsets = [0, -1, 1, 0, 0]
 0:stop, 1:down, 2:up, 3:left, 4:right
 '''
-
 
 class Terminal_Env(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 3}
@@ -52,7 +55,9 @@ class Terminal_Env(gym.Env):
         # self.map_render = utils.create_background_map_regular(self.map_size[0], self.map_size[1]) # np.array((width+,heigh,3))
         plot_file_path = os.path.join(self.current_directory, 'edges.csv')
         self.plot_data = pd.read_csv(plot_file_path)
-
+        latlon_file_path = os.path.join(self.current_directory, 'point_latlon.npy')
+        self.latlon = np.load(latlon_file_path)
+        self.plot_args = utils.preprocess_plot_map_quick(self.latlon)
         # TODO background vehicle control init
         self.model = init_lstm_model(**model_arg)
         self.init_fig()
@@ -95,14 +100,24 @@ class Terminal_Env(gym.Env):
         
     def init_fig(self):
         # plt的过程中统计了映射id2plot_xy, plot_xy2id，后期可以提取出来
-        fig, ax1 = plt.subplots(figsize=(16, 10))
-        ax1 = fig.add_subplot(111)  
-        fig, ax, G, id2plot_xy, plot_xy2id = utils.plot_map(self.plot_data, ax1)
+        fig, ax = plt.subplots(figsize=(16, 10))
+        # ax = fig.add_subplot(111)  
+        ax.set_xlim(0.020, 0.065)
+        ax.set_ylim(-0.004, 0.008)
+        G, id2plot_xy, plot_xy2id = utils.plot_map(plot_data=self.plot_data, ax1=ax)
+        self.fig = fig
         self.ax = ax
         self.G = G
         self.plot_xy2id = plot_xy2id
         self.id2plot_xy = id2plot_xy
         self.new_route = [v for k, v in id2plot_xy.items()]   # get 
+        self._init_draw_tools()
+
+    def _init_draw_tools(self):
+        self._scatter_ego = self.ax.scatter([], [], color = 'red', marker = '*', s = 150, zorder=4)
+        self._scatter_other = self.ax.scatter([], [], color = 'black', marker = 'o', s = 80, zorder=2)
+        self._line_route, = self.ax.plot([], [], color='green', linewidth=3, zorder=3)
+        self._line_history, = self.ax.plot([], [], color='red', linewidth=3, zorder=2)
 
     def init_ov(self):
         csv_file_path = os.path.join(self.current_directory, 'processed_route.csv')
@@ -150,20 +165,20 @@ class Terminal_Env(gym.Env):
     
     def reset(self, seed=None, options=None, OD=None):
         super().reset(seed=seed)
+        self.init_img_info()
         map_topo = self.ev_handle.reset(seed=seed, OD=OD)
         self.map_topo = np.array(map_topo).reshape(4,)
-        #self.map_topo = np.zeros((4,))
 
         # TODO background vehicle control reset
         for i in range(self.number_v):
             # 实际上因为该问题的特殊性，这里的ov reset是None，因为ov的路径是根据历史路径来的，所以就不reset历史路径了
             self.other_vehicles_list[i].reset()
-        obs = self._get_obs(0)
+        obs = self._get_obs(0, True)
         self.reward_handle.reset(self.ev_handle.start_id, self.ev_handle.target_id, obs["routes"])
         self.obs = copy.deepcopy(obs)
         info = self._get_info()
         self.info = info
-        self.init_img_info()
+        
         return obs, info
 
     def close(self):
@@ -185,9 +200,9 @@ class Terminal_Env(gym.Env):
         if self.clock is None and self.render_mode == "human":
             self.clock = pygame.time.Clock()
 
-        render_img = self.get_render_img(self.text_width, **info_args)
+        render_img_with_info = self._concat_info_img(text_width=self.text_width, **info_args)
     
-        canvas = pygame.surfarray.make_surface(render_img.swapaxes(0, 1))
+        canvas = pygame.surfarray.make_surface(render_img_with_info.swapaxes(0, 1))
         scaled_canvas = pygame.transform.scale(canvas, (700, 600))
         # self.window.blit(canvas)
         # pygame.display.flip()
@@ -208,7 +223,7 @@ class Terminal_Env(gym.Env):
                 np.array(pygame.surfarray.pixels3d(canvas)), axes=(1, 0, 2)
             )
 
-    def _get_obs(self, action: int):
+    def _get_obs(self, action: int, reset_init=False):
         obs = {}
         history_point_id = self.ev_handle.history_point_id
         if None in history_point_id:
@@ -228,7 +243,7 @@ class Terminal_Env(gym.Env):
         obs['map_topo'] = self.map_topo
         tmp_paths = self._get_routes(num_routes=self.route_number, len_routes=self.route_length)
         obs["routes"] = np.array(tmp_paths)
-        _, img = self.get_render_img()
+        img = self.get_render_img(routes=obs["routes"], reset_init=reset_init)
         obs["render_img"] = img
         return obs
 
@@ -270,83 +285,98 @@ class Terminal_Env(gym.Env):
                     shortest_paths[i].append(-1)
         return shortest_paths
 
-    def get_render_img(self, text_width=300, **info_args):
+    def get_render_img(self, reset_init:bool=False, **info_args):
         # plot map and get G (graph)
-        fig, ax, G, id2plot_xy, plot_xy2id = utils.plot_map(self.plot_data, self.ax)
-        self.ax = ax
-        self.G = G
-        self.plot_xy2id = plot_xy2id
-        self.id2plot_xy = id2plot_xy
-        self.new_route = [v for k, v in id2plot_xy.items()]   # get node xy
+        if reset_init:
+            self.ax.clear()
+            self._init_draw_tools()
+            self.ax.plot(self.plot_args[0][:, 0], self.plot_args[0][:, 1], color='gray')
+            self.ax.plot(self.plot_args[1][:, 0], self.plot_args[1][:, 1], color='gray')
+            self.ax.scatter(self.plot_args[2][:,0], self.plot_args[2][:,1], color='b')
+            self.ax.scatter(self.plot_args[3][:,0], self.plot_args[3][:,1], color='b')
+            assert self.ev_handle
+            target_pos = self.id2plot_xy[self.ev_handle.target_id]
+            self.ax.scatter(target_pos[0], target_pos[1], color = 'green', marker = 's', s = 80)
 
         # check if other vehcile
         if len(self.plot_xys) != 0:
+            xy_list = []
             for k, xy in self.plot_xys.items():
-                self.ax.plot(xy[0], xy[1], color = 'black', marker = 'o', markersize = 10)
+                xy_list.append(xy)
+            self._updata_other(scatter=self._scatter_other, other_v_xy=xy_list, color='black', size=80)
+        else:
+            self._updata_other(self._scatter_other)
 
         # check if ego-vehicle
         if self.ev_handle:
-            target_pos = id2plot_xy[self.ev_handle.target_id]
-            self.ax.plot(target_pos[0], target_pos[1], color = 'green', marker = 's', markersize = 10)
             ev_curr_id, ev_prev_id = self.ev_handle._get_ev_loc_id()
             history_id = self.ev_handle.history_point_id
-
             if ev_curr_id is not None:
-                ev_curr_pos = id2plot_xy[ev_curr_id]
-                self.ax.plot(ev_curr_pos[0], ev_curr_pos[1], color = 'red', marker = '*', markersize = 20)
-            # if ev_curr_id is not None and ev_prev_id is not None:
+                ev_curr_pos = self.id2plot_xy[ev_curr_id]
+                self._updata_ego(scatter=self._scatter_ego, new_x=ev_curr_pos[0], new_y=ev_curr_pos[1], color='red', size=150)
+            else:
+                self._updata_ego(self._scatter_ego)
+                #self.ax.scatter(ev_curr_pos[0], ev_curr_pos[1], color = 'red', marker = '*', s = 150)
+        
             xy_list = []
             if not None in history_id:
                 for i in range(len(history_id)):
-                    tmp_pos = id2plot_xy[history_id[i]]
+                    tmp_pos = self.id2plot_xy[history_id[i]]
                     xy_list.append(tmp_pos)
                 x, y = zip(*xy_list)
-                #ev_prev_pos = id2plot_xy[ev_prev_id]
-                #x, y = zip(ev_curr_pos, ev_prev_pos)
-                self.ax.plot(x, y, color='red')
+                self._update_line(line=self._line_history, new_x=x, new_y=y, color='red', line_width=3)
+            else:
+                self._update_line(self._line_history)
+                #self.ax.plot(x, y, color='red', linewidth=2)
         
         # plot routes
-        routes = self.obs.get("routes")
+        routes = info_args.get("routes")
         if routes is not None:
             curr_route = routes[0]
             xy_list = []
             for i in range(self.route_length):
                 if curr_route[i] != -1:
-                    xy_list.append(id2plot_xy[curr_route[i]])
+                    xy_list.append(self.id2plot_xy[curr_route[i]])
             x, y = zip(*xy_list)
-            self.ax.plot(x, y, color='g')
+            self._update_line(line=self._line_route, new_x=x, new_y=y, color='green', line_width=3)
+        else:
+            self._update_line(self._line_route)
+            #self.ax.plot(x, y, color='green', linewidth=2)
         
         # fig to array & add info
-        render_img = utils.figure_to_array(fig, self.map_size)
+        render_img = utils.figure_to_array(self.fig, self.map_size)
+        return render_img
+        
+    def _updata_ego(self, scatter, new_x=None, new_y=None, color='red', size=150):
+        if new_x:
+            scatter.set_offsets([[new_x, new_y]])
+            scatter.set_color(color)
+            scatter.set_sizes([size])
+        else:
+            scatter.set_offsets([[None,None]])
+
+    def _updata_other(self, scatter, other_v_xy=None, color='black', size=80):
+        if other_v_xy:
+            scatter.set_offsets(other_v_xy)
+            scatter.set_color(color)
+            scatter.set_sizes([size])
+        else:
+            scatter.set_offsets([[None,None]])
+        
+    def _update_line(self, line, new_x=None, new_y=None, color='g', line_width=2):
+        line.set_xdata(new_x)
+        line.set_ydata(new_y)
+        line.set_color(color)
+        line.set_linewidth(line_width)
+        
+    def _concat_info_img(self, text_width=300, **info_args):
+        render_img = self.obs.get("render_img")
         text_img = self._get_render_txt(render_img, text_width, **info_args)
         height, width, _ = render_img.shape
         render_img_info = np.ones((height, width + text_width, 3), dtype=np.uint8) * 255
         render_img_info[:height, :width] = render_img
         render_img_info[:height, width:width + text_width] = text_img
-        self.ax.clear()
-        plt.close()
-        '''
-        上面是新的，用plt画的，不过还得转一下到数组，plotmap其实有一些繁琐，后期可以考虑简化
-        这个是old version了，用cv2画的
-        curr_render = self.scale * (np.array(ev_curr_loc) + 1)
-        prev_render = self.scale * (np.array(ev_prev_loc) + 1)
-        map_render = None
-        map_render = utils.create_background_map(self.map_size[0], self.map_size[1]) # np.array((width,heigh,3))
-        if map_render is None:
-            map_render = self.map_render    # 是否更新，如果更新怎会摸出轨迹
-        render_img = cv2.circle(map_render, (curr_render[0],curr_render[1]), 10, (0, 0, 255), -1)  # 蓝色圆点表示本车
-        start_loc = self._CR2pixel(self.ev_handle.start_CR)
-        des_loc = self._CR2pixel(self.ev_handle.des_CR)
-        render_img = cv2.circle(map_render, start_loc, 10, (255, 0, 0), -1)  # 红色圆点表示起点
-        render_img = cv2.circle(map_render, des_loc, 10, (0, 255, 0), -1)  # 绿色圆点表示终点
-        render_img = cv2.line(render_img, (prev_render[0],prev_render[1]), (curr_render[0],curr_render[1]), (0, 0, 255), 2) # 画走过的路径
-        text_img = self._get_render_txt(render_img, text_width)
-        height, width, _ = render_img.shape
-        final_render_img = np.ones((height, width + text_width, 3), dtype=np.uint8) * 255
-        final_render_img[:height, :width] = render_img
-        final_render_img[:height, width:width+text_width] = text_img
-        '''
-        return render_img_info, render_img
+        return render_img_info
 
     def _get_render_txt(self, render_img:np.ndarray, text_width, **info_args):
         # ev_curr_id, ev_prev_id = self.ev_handle._get_ev_loc_id()

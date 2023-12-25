@@ -60,6 +60,8 @@ class myExtractor(BaseFeaturesExtractor):
                  observation_space: spaces.Dict, 
                  features_dim: int = 1,
                  net_arch: list = [16, 16], 
+                 cnn_output_dim: int = 256, 
+                 normalized_image: bool = False,
                  activation_fn: Type[nn.Module] = nn.ReLU) -> None:
         super().__init__(observation_space, features_dim = features_dim)
         
@@ -69,7 +71,10 @@ class myExtractor(BaseFeaturesExtractor):
 
         for key, subspace in observation_space.spaces.items():
             net_args = []
-            if key != 'map_topo':
+            if is_image_space(subspace, normalized_image=normalized_image):
+                    extractors[key] = NatureCNN(subspace, features_dim=cnn_output_dim, normalized_image=normalized_image)
+                    total_concat_size += cnn_output_dim
+            elif key != 'map_topo':
                 if key != 'des_id':
                     net_args.append(nn.Flatten())
                     faltten_dim = get_flattened_obs_dim(subspace)
@@ -101,3 +106,60 @@ class myExtractor(BaseFeaturesExtractor):
         for key, extractor in self.extractors.items():
             encoded_tensor_list.append(extractor(observations[key]))
         return torch.cat(encoded_tensor_list, dim=1)
+    
+class NatureCNN(BaseFeaturesExtractor):
+    """
+    copy from sb3
+
+    :param observation_space:
+    :param features_dim: Number of features extracted.
+        This corresponds to the number of unit for the last layer.
+    :param normalized_image: Whether to assume that the image is already normalized
+        or not (this disables dtype and bounds checks): when True, it only checks that
+        the space is a Box and has 3 dimensions.
+        Otherwise, it checks that it has expected dtype (uint8) and bounds (values in [0, 255]).
+    """
+
+    def __init__(
+        self,
+        observation_space: gym.Space,
+        features_dim: int = 512,
+        normalized_image: bool = False,
+    ) -> None:
+        assert isinstance(observation_space, spaces.Box), (
+            "NatureCNN must be used with a gym.spaces.Box ",
+            f"observation space, not {observation_space}",
+        )
+        super().__init__(observation_space, features_dim)
+        # We assume CxHxW images (channels first)
+        # Re-ordering will be done by pre-preprocessing or wrapper
+        assert is_image_space(observation_space, check_channels=False, normalized_image=normalized_image), (
+            "You should use NatureCNN "
+        )
+        n_input_channels = observation_space.shape[0]
+        self.cnn = nn.Sequential(
+            nn.Conv2d(n_input_channels, 32, kernel_size=8, stride=4, padding=0),
+            nn.ReLU(),
+            #nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=0),
+            nn.ReLU(),
+            #nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0),
+            nn.ReLU(),
+            #nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Flatten(),
+        )
+
+        # Compute shape by doing one forward pass
+        with torch.no_grad():
+            n_flatten = self.cnn(torch.as_tensor(observation_space.sample()[None]).float()).shape[1]
+
+        self.linear = nn.Sequential(
+            nn.Linear(n_flatten, 1024), 
+            nn.ReLU(),
+            nn.Linear(1024, features_dim), 
+            nn.ReLU(),
+        )
+
+    def forward(self, observations: torch.Tensor) -> torch.Tensor:
+        return self.linear(self.cnn(observations))

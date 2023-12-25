@@ -13,6 +13,7 @@ from stable_baselines3.common.logger import configure
 import os
 from datetime import datetime
 import numpy as np
+from stable_baselines3.common.env_util import make_vec_env
 
 class myrobot(object):
     def __init__(self, base_path = './data/checkpoint_noimg/', 
@@ -39,11 +40,22 @@ class myrobot(object):
         self.callback = None
         self._last_obs = None
 
-    def set_env(self):
-        env = gym.make('Terminal_Env-v0', num_vehicle = 10, map_size = [1200, 700], 
-               render_mode = 'rgb_array', seed = 24, text_width = 400,
-               model_arg = {'input_dim': 2, 'hidden_dim': 64, 'output_dim': 2, 'num_layers': 2,},
+    def set_env(self, n_envs=1, train=True):
+        if not train:
+            env = gym.make('Terminal_Env-v0', num_vehicle = 10, map_size = [600, 360], 
+                render_mode = 'rgb_array', seed = 24, text_width = 400,
+                model_arg = {'input_dim': 2, 'hidden_dim': 64, 'output_dim': 2, 'num_layers': 2,},
             )
+        else:
+            env_kwargs = {
+                "num_vehicle": 10,
+                "map_size": [600, 360],
+                "render_mode": 'rgb_array', 
+                "seed": 24, 
+                "text_width": 400,
+                "model_arg": {'input_dim': 2, 'hidden_dim': 64, 'output_dim': 2, 'num_layers': 2,}
+            }
+            env = make_vec_env(env_id='Terminal_Env-v0', n_envs=n_envs, env_kwargs=env_kwargs)
         self.env = env
         return env
     
@@ -52,11 +64,11 @@ class myrobot(object):
         # set up logger
         new_logger = configure(tmp_path, ["stdout", "csv", "tensorboard"])
         
-        callback_list = init_callback_list(env = env, save_path=self.base_path, save_freq = 2e4, save_replay_buffer=True, 
+        callback_list = init_callback_list(env = env, save_path=self.base_path, save_freq = 1e2, save_replay_buffer=True, 
                                            verbose=0, wandb_flag=wandb_flag, cfg=self.wandb_kwargs)
         
-        model = my_dqn(myPolicy, env, verbose=0, buffer_size=100000, learning_starts=0, train_freq=(1000,'step'), gradient_steps=20,
-                    target_update_interval=400, batch_size=4096, learning_rate=5e-5, policy_kwargs=self.policy_kwargs, device=torch.device(1),
+        model = my_dqn(myPolicy, env, verbose=0, buffer_size=2000, learning_starts=0, train_freq=(100,'step'), gradient_steps=10,
+                    target_update_interval=200, batch_size=256, learning_rate=5e-5, policy_kwargs=self.policy_kwargs, device=torch.device(1),
                     stats_window_size=200)
         model.set_logger(new_logger)
         self.callback = callback_list
@@ -64,11 +76,11 @@ class myrobot(object):
     
     def learn(self, model:my_dqn, callback_list, env, train_from_scratch=False):
         if train_from_scratch:
-            model.learn(total_timesteps=5e6, log_interval=5000, progress_bar=True, callback=callback_list, reset_num_timesteps=True,)
+            model.learn(total_timesteps=5e6, log_interval=5000, progress_bar=True, callback=callback_list, reset_num_timesteps=False,)
         else:
             model.load_replay_buffer(self.latest_buffer_path)
-            model = model.load(self.latest_ckpt_path, env=env, buffer_size=100000, learning_starts=0, train_freq=(1000,'step'), gradient_steps=20,
-                    target_update_interval=400, batch_size=4096, learning_rate=1e-6, device=torch.device(1))
+            model = model.load(self.latest_ckpt_path, env=env, buffer_size=2000, learning_starts=0, train_freq=(100,'step'), gradient_steps=20,
+                    target_update_interval=100, batch_size=256, learning_rate=1e-5, device=torch.device(1))
             model.learn(total_timesteps=5e6, log_interval=5000, progress_bar=True, callback=callback_list, reset_num_timesteps=False,)
 
     def get_buffer_name(self, buffer_step = None):
@@ -162,7 +174,7 @@ if __name__ == "__main__":
         "features_extractor_kwargs": {"net_arch":[8,32,16], },
         "net_arch": [64, 64, 16],
     }
-    project_name = "test_with_routes_ver1"
+    project_name = "test_with_img_ver1"
     wandb_kwargs = {
         'wb_project': f"terminal_{project_name}",
         'wb_name': None,
@@ -171,9 +183,9 @@ if __name__ == "__main__":
     }
     train = False
     robot = myrobot(base_path=f'./data/{project_name}/', buffer_step=None, ckpt_step=None, policy_kwargs=policy_kwargs, wandb_kwargs=wandb_kwargs)
-    env = robot.set_env()
+    env = robot.set_env(n_envs=1, train=train)
     
-    model, callback_list = robot.set_model(env=env, wandb_flag=train)
+    model, callback_list = robot.set_model(env=env, wandb_flag=False)
     if train:
         robot.learn(model=model, callback_list=callback_list, env=env, train_from_scratch=True)
     else:

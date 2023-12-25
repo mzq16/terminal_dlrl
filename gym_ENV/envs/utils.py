@@ -24,9 +24,9 @@ def plot_map(plot_data: pd.DataFrame, ax1):
     G = nx.Graph()
     blue_dot_dict={}
     idx_blue_dot={}
-    preci = 15
-    fig, ax1 = plt.subplots(figsize=(16, 10))
-    ax1 = fig.add_subplot(111)  
+    preci = 5
+    #fig, ax1 = plt.subplots(figsize=(16, 10))
+    #ax1 = fig.add_subplot(111)  
     data_arr = plot_data.values
     point_count=0
     for i in range(len(data_arr)):
@@ -118,7 +118,7 @@ def plot_map(plot_data: pd.DataFrame, ax1):
                 edge_tuples = list(zip(dot_id_list[:-1], dot_id_list[1:]))
                 G.add_edges_from(edge_tuples)
                 point_count += len(new_x)
-    return fig, ax1, G, blue_dot_dict, idx_blue_dot
+    return G, blue_dot_dict, idx_blue_dot
 
 def split(flag, x0, x1):
     sx = 0.0005
@@ -128,6 +128,53 @@ def split(flag, x0, x1):
         cnt = (x1-x0)//sx
     else:
         cnt = (x1-x0)//sy
+    return int(abs(cnt))
+
+def preprocess_plot_map_quick(xy: np.array):
+    current_script_path = os.path.dirname(os.path.abspath(__file__))
+    h, w, _ = xy.shape
+    array_width = np.zeros((h * w, 2), dtype=xy.dtype)
+    array_height = np.zeros((h * w, 2), dtype=xy.dtype)
+    scatter_width = []
+    scatter_height = []
+    cnt_w = np.load(os.path.join(current_script_path, 'cnt_w.npy'))
+    cnt_h = np.load(os.path.join(current_script_path, 'cnt_h.npy'))
+    
+
+    # 行
+    for i in range(h):
+        if i % 2 == 0:
+            array_width[i * 12: (i + 1) * 12] = xy[i]
+            tmp_w = cnt_w[i]
+        else:
+            array_width[i * 12: (i + 1) * 12] = xy[i, ::-1, :]
+            tmp_w = cnt_w[i]
+        for j in range(len(xy[i]) - 1):
+            cnt = split_quick(1, xy[i][j], xy[i][j + 1])
+            scatter_width.append(np.linspace(xy[i][j], xy[i][j + 1], tmp_w[j] + 2)) # (cnt, 2)
+    # 列
+    for i in range(w):
+        if i % 2 == 0:
+            array_height[i * 9: (i + 1) * 9] = xy[:, i]
+            tmp_h = cnt_h[i]
+        else:
+            array_height[i * 9: (i + 1) * 9] = xy[::-1, i, :]
+            tmp_h = cnt_h[i]
+        for j in range(len(xy[:, i]) - 1):
+            cnt = split_quick(0, xy[j][i], xy[j + 1][i])
+            scatter_height.append(np.linspace(xy[j][i], xy[j + 1][i], tmp_h[j] + 2)) # (cnt, 2)
+
+    scatter_width = np.concatenate(scatter_width, axis=0)
+    scatter_height = np.concatenate(scatter_height, axis=0)
+    return array_width, array_height, scatter_width, scatter_height
+
+def split_quick(flag, coord0, coord1):
+    sx = 0.0005
+    sy = 0.0002 
+    if flag:
+        cnt = (coord0[0]-coord1[0])//sx
+    else:
+        cnt = (coord0[1]-coord1[1])//sy
     return int(abs(cnt))
 
 def xy2plot(coord, idx_blue_dot, blue_dot_dict, G, new_route, p=None):

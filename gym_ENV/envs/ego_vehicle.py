@@ -176,13 +176,19 @@ class ego_vehicle(object):
             neighbor_x, neighbor_y = neighbour_xy
             angle = math.atan2(neighbor_y - y, neighbor_x - x) / math.pi * 180   # (y, x)
             if 45 < angle <= 135:
+                assert adjacent_point_id[0] is None, print(f"neighbour_id:{neighbour_id}")
                 adjacent_point_id[0] = neighbour_id       # Up
             elif -45 > angle >= -135:
+                assert adjacent_point_id[1] is None, print(f"neighbour_id:{neighbour_id}")
                 adjacent_point_id[1] = neighbour_id       # Down
-            elif -135 > angle >= -180 or 180 > angle > 135:
+            elif -135 > angle >= -180 or 180 >= angle > 135:
+                assert adjacent_point_id[2] is None, print(f"neighbour_id:{neighbour_id}")
                 adjacent_point_id[2] = neighbour_id       # Left
             elif -45 <= angle <= 45:
+                assert adjacent_point_id[3] is None, print(f"neighbour_id:{neighbour_id}")
                 adjacent_point_id[3] = neighbour_id       # Right
+            else:
+                print(f"neighbour_id:{neighbour_id}")
         return adjacent_point_id
 
     def get_aligned_option(self):

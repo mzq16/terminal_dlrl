@@ -83,13 +83,17 @@ class WandbCallback(BaseCallback):
         action_probs = self.model.policy.q_net.prob_values
         q_values = self.model.policy.q_net.q_values
         for i in range(self.model.n_envs):
+            if i > 2:
+                break
             self.all_envs_dict[f'rollout/reward_{i}_env'].append(rewards[i])
             single_reward_info = infos[i].get('reward_info')
             self.all_envs_dict[f"rollout/reward_{i}_env/done"].append(int(dones[i])) 
             for k, v in single_reward_info.items():
                 self.all_envs_dict[f'rollout/reward_{i}_env/' + k].append(v) 
-            self.all_envs_dict[f"train/action_prob_{i}"].append(self.cal_entropy(action_probs[i]))
-            self.all_envs_dict[f"train/q_value_qnet_{i}"].append(max(q_values[i]))
+            if action_probs is not None:
+                self.all_envs_dict[f"train/action_prob_{i}"].append(self.cal_entropy(action_probs[i]))
+            if q_values is not None:
+                self.all_envs_dict[f"train/q_value_qnet_{i}"].append(max(q_values[i]))
             # wandb.log(all_envs_dict, step=self.model.num_timesteps)
                 
         return True
@@ -105,7 +109,6 @@ class WandbCallback(BaseCallback):
         # 同上，父类有一个非隐调用
         # train 没有end，所以把这个evaluate放这里，放step那里，每次rollout都得调用
         # 破案了，evaluate之后就会出现None的情况，大概率是没有reset
-        self._evaluate()
         self.rollout_start_time = time.time()
 
     def _on_training_end(self) -> None:
@@ -126,6 +129,8 @@ class WandbCallback(BaseCallback):
     
     def _on_rollout_end(self):
         rollout_time = time.time() - self.rollout_start_time
+        if self.model.num_timesteps % self._eval_step == 0:
+            self._evaluate()
         logger_dict = {}
         logger_dict['rollout/time'] = rollout_time
         if "rollout/exploration_rate" in self.model.logger.name_to_value.keys():
@@ -258,7 +263,7 @@ def init_callback_list(env, save_freq=100, save_path='./data/checkpoint_noimg/',
             }
         else:
             cfg = cfg
-        callback_wandb = WandbCallback(cfg, env, "./data/vedeo", save_path, "./data/buffer")
+        callback_wandb = WandbCallback(cfg, env, "./data/video", save_path, "./data/buffer")
 
     # 这个callback list 看了看源码应该是可以嵌套的，因为callback list也是继承了BaseCallback，
     # 嵌套就是[callback1, [callback2,callback0]]，
