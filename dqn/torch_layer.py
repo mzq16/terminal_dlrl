@@ -75,15 +75,7 @@ class myExtractor(BaseFeaturesExtractor):
                     extractors[key] = NatureCNN(subspace, features_dim=cnn_output_dim, normalized_image=normalized_image)
                     total_concat_size += cnn_output_dim
             elif key != 'map_topo':
-                if key != 'des_id':
-                    net_args.append(nn.Flatten())
-                    faltten_dim = get_flattened_obs_dim(subspace)
-                    net_args.append(nn.Linear(faltten_dim, net_arch[0]))
-                    for idx in range(len(net_arch) - 1):
-                        net_args.append(nn.Linear(net_arch[idx], net_arch[idx + 1]))
-                        net_args.append(activation_fn())
-                    total_concat_size += net_arch[-1]
-                else:
+                if key == 'des_id':
                     net_args.append(nn.Flatten())
                     faltten_dim = get_flattened_obs_dim(subspace)
                     net_args.append(nn.Linear(faltten_dim, 4))
@@ -93,6 +85,14 @@ class myExtractor(BaseFeaturesExtractor):
                     net_args.append(nn.Linear(8, 4))
                     net_args.append(activation_fn())
                     total_concat_size += 4
+                else:
+                    net_args.append(nn.Flatten())
+                    faltten_dim = get_flattened_obs_dim(subspace)
+                    net_args.append(nn.Linear(faltten_dim, net_arch[0]))
+                    for idx in range(len(net_arch) - 1):
+                        net_args.append(nn.Linear(net_arch[idx], net_arch[idx + 1]))
+                        net_args.append(activation_fn())
+                    total_concat_size += net_arch[-1]
                 extractors[key] = nn.Sequential(*net_args)
 
         self.extractors = nn.ModuleDict(extractors)
@@ -138,15 +138,17 @@ class NatureCNN(BaseFeaturesExtractor):
         )
         n_input_channels = observation_space.shape[0]
         self.cnn = nn.Sequential(
-            nn.Conv2d(n_input_channels, 32, kernel_size=8, stride=4, padding=0),
+            nn.Conv2d(n_input_channels, 8, kernel_size=8, stride=4, padding=0),
             nn.ReLU(),
             #nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=0),
+            nn.Conv2d(8, 16, kernel_size=5, stride=2, padding=0),
             nn.ReLU(),
-            #nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0),
+            nn.Conv2d(16, 32, kernel_size=5, stride=2, padding=0),
             nn.ReLU(),
-            #nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=0),
+            nn.ReLU(),
+            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=0),
+            nn.ReLU(),
             nn.Flatten(),
         )
 
@@ -157,7 +159,9 @@ class NatureCNN(BaseFeaturesExtractor):
         self.linear = nn.Sequential(
             nn.Linear(n_flatten, 1024), 
             nn.ReLU(),
-            nn.Linear(1024, features_dim), 
+            nn.Linear(1024, 512), 
+            nn.ReLU(),
+            nn.Linear(512, features_dim), 
             nn.ReLU(),
         )
 
