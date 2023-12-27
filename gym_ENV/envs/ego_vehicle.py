@@ -118,7 +118,7 @@ class ego_vehicle(object):
         self.history_inputxy.append(self.current_position)
         for _ in range(self.history_len):
             self._history_point_id.append(self.start_id)
-            self._histroy_action.append(np.array([0, 0]))
+            self._histroy_action.append(-1)
         self._aligned_option = self.get_aligned_option()
 
     # 执行一步的操作
@@ -192,15 +192,22 @@ class ego_vehicle(object):
                 print(f"neighbour_id:{neighbour_id}")
         return adjacent_point_id
 
-    def get_aligned_option(self):
-        if self._current_id is None:
-            return [None for _ in range(4)]
-        try:
-            neighbour_ids = list(self.G.neighbors(self._current_id))
-        except:
-            print(self._current_id)
+    def get_aligned_option(self, point_id=None):
+        if point_id is None:
+            if self._current_id is None:
+                return [None for _ in range(4)]
+            try:
+                neighbour_ids = list(self.G.neighbors(self._current_id))
+                curr_plot_xy = self.id2plot_xy[self._current_id]
+            except:
+                print(self._current_id)
+        else:
+            try:
+                neighbour_ids = list(self.G.neighbors(point_id))
+                curr_plot_xy = self.id2plot_xy[point_id]
+            except:
+                print(point_id)
         neighbour_id2plot_xys = {neighbour_id: self.id2plot_xy[neighbour_id] for neighbour_id in neighbour_ids}
-        curr_plot_xy = self.id2plot_xy[self._current_id]
         aligned_option = self.align_dir_from_angle(neighbour_id_xys = neighbour_id2plot_xys, curr_xy=curr_plot_xy)
         return aligned_option
 

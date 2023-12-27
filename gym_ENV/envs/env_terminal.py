@@ -80,13 +80,14 @@ class Terminal_Env(gym.Env):
             {
             #"ev_curr_id": gym.spaces.Box(low=0, high=255, shape=(1,), dtype=np.int64),       
             #"ev_prev_id": gym.spaces.Box(low=0, high=255, shape=(1,), dtype=np.int64),
-            "history_id": gym.spaces.Box(low=0, high=255, shape=(5,), dtype=np.int64),       
+            "history_actions": gym.spaces.Box(low=0, high=255, shape=(5,), dtype=np.int64),       
             # "ev_direction": gym.spaces.Box(low=0, high=3, shape=(1,), dtype=np.int32),  # 4 direction, no stop
             "render_img": gym.spaces.Box(low=0, high=255, shape=(map_size[1], map_size[0], 3), dtype=np.uint8),
             "ov_id": gym.spaces.Box(low=0, high=1000, shape=(self.number_v, ), dtype=np.int64),
             "des_id": gym.spaces.Box(low=0, high=1000, shape=(1,), dtype=np.int64),
             "map_topo": gym.spaces.Box(low=0, high=1, shape=(4,), dtype=np.int64),
             "routes": gym.spaces.Box(low=0, high=1000, shape=(route_number, route_length), dtype=np.int64),
+            "route_actions": gym.spaces.Box(low=0, high=3, shape=(route_number, route_length - 1), dtype=np.int64),
             }
         )
 
@@ -146,20 +147,18 @@ class Terminal_Env(gym.Env):
             tmp_vehicle.step(self.model)
             self._get_plot_xy(tmp_vehicle)      # find all plot xy coords and put into self.plot_xys
 
-        # 3. get reward, terminal & get info
+
+        # 2. get world state (obervation), include background vehicle movement
+        # 这下面的数据都有可能出现ev loc为None的情况，因此需要考虑
         obs = self._get_obs(action)
+        self.obs = copy.deepcopy(obs)
+
+        # 3. get reward, terminal & get info
         total_reward, done = self.reward_handle.step(self.other_vehicles_list, self.ev_handle, obs["routes"])
         self.done = done
         self.action = action
         info = self._get_info()
         self.info = info
-
-        # 2. get world state (obervation), include background vehicle movement
-        # 这下面的数据都有可能出现ev loc为None的情况，因此需要考虑
-        
-        self.obs = copy.deepcopy(obs)
-        
-        # get obs 一般在info前，紧接着action。不过这里obs包括了info reward，所以就放到后面了
         
         return obs, total_reward, done, False, info
     
@@ -226,11 +225,12 @@ class Terminal_Env(gym.Env):
     def _get_obs(self, action: int, reset_init=False):
         obs = {}
         history_point_id = self.ev_handle.history_point_id
+        history_action = self.ev_handle.history_action
         if None in history_point_id:
             assert history_point_id[-1] is None
             print("history has None item")
             history_point_id[-1] = -1
-        obs['history_id'] = np.array(list(history_point_id))
+        obs['history_actions'] = np.array(list(history_action))
         #obs['ev_prev_id'] = np.array([ev_prev_id]) if ev_prev_id else np.array([-1])
         # obs['ev_direction'] = np.array(action).reshape(1,)      # 其实curr - prev就是direction
         obs['des_id'] = np.array([self.ev_handle.target_id])
@@ -242,7 +242,9 @@ class Terminal_Env(gym.Env):
         obs['ov_id'] = np.array(ov_id_list)
         obs['map_topo'] = self.map_topo
         tmp_paths = self._get_routes(num_routes=self.route_number, len_routes=self.route_length)
+        tmp_actions = self._routes2action(np.array(tmp_paths))
         obs["routes"] = np.array(tmp_paths)
+        obs["route_actions"] = tmp_actions
         img = self.get_render_img(routes=obs["routes"], reset_init=reset_init)
         obs["render_img"] = img
         return obs
@@ -285,6 +287,23 @@ class Terminal_Env(gym.Env):
                     shortest_paths[i].append(-1)
         return shortest_paths
 
+    def _routes2action(self, routes: np.ndarray):
+        num_routes, len_routes = routes.shape
+        action_arr = np.zeros(shape=(num_routes, len_routes - 1), dtype=np.int64)
+        for i in range(num_routes):
+            for j in range(len_routes - 1):
+                curr_point = routes[i][j]
+                # curr is none, exceed
+                if curr_point == -1:
+                    action_arr[i][j] = -1
+                # arrived within len_routes steps, thus no more route action
+                elif routes[i][j+1] == -1:
+                    action_arr[i][j] = -1
+                else:
+                    aligned_option = self.ev_handle.get_aligned_option(point_id=curr_point)
+                    action_arr[i][j] = aligned_option.index(routes[i][j+1])
+        return action_arr
+
     def get_render_img(self, reset_init:bool=False, **info_args):
         # plot map and get G (graph)
         if reset_init:
@@ -324,7 +343,7 @@ class Terminal_Env(gym.Env):
                     tmp_pos = self.id2plot_xy[history_id[i]]
                     xy_list.append(tmp_pos)
                 x, y = zip(*xy_list)
-                self._update_line(line=self._line_history, new_x=x, new_y=y, color='red', line_width=3)
+                self._update_line(line=self._line_history, new_x=x, new_y=y, color='red', line_width=4)
             else:
                 self._update_line(self._line_history)
                 #self.ax.plot(x, y, color='red', linewidth=2)
@@ -338,7 +357,7 @@ class Terminal_Env(gym.Env):
                 if curr_route[i] != -1:
                     xy_list.append(self.id2plot_xy[curr_route[i]])
             x, y = zip(*xy_list)
-            self._update_line(line=self._line_route, new_x=x, new_y=y, color='green', line_width=3)
+            self._update_line(line=self._line_route, new_x=x, new_y=y, color='green', line_width=4)
         else:
             self._update_line(self._line_route)
             #self.ax.plot(x, y, color='green', linewidth=2)
@@ -411,6 +430,9 @@ class Terminal_Env(gym.Env):
         
         topo = info_args.get('topo')
         action_prob = info_args.get('action_prob')
+        history_act = info_args.get('history_actions')
+        route_act = info_args.get('route_actions')
+        action_value = info_args.get('action_value')
         txt_t7 = f"topo:{topo} "
         if action_prob is None:
             txt_t8 = f"prev_a_prob:{action_prob}"
@@ -420,9 +442,19 @@ class Terminal_Env(gym.Env):
             for i in range(len(action_prob)):
                 tmp_ = float(action_prob[i])
                 txt_t8 += f"{tmp_:.2f} "
-        txt_t = [txt_t1, txt_t2, txt_t3, txt_t4, txt_t5, txt_t6, txt_t7, txt_t8] + txt_histroy_list
+        if action_value is None:
+            txt_t8_5 = f"action_value: {action_value}"
+        else:
+            action_value = np.round(action_value, decimals=2)
+            txt_t8_5 = f"action_value: {action_value}"
+        txt_t9 = txt_t10 = f""
+        for i in range(len(history_act)):
+            txt_t9 += f"act{i}:{history_act[i]} " 
+        for i in range(len(route_act[0])):
+            txt_t10 += f"r_act{i}:{route_act[0][i]} "
+        txt_t = [txt_t1, txt_t2, txt_t3, txt_t4, txt_t5, txt_t6, txt_t7, txt_t8, txt_t8_5, txt_t9, txt_t10] + txt_histroy_list
         for i in range(len(txt_t)):
-            text_img = cv2.putText(text_img, txt_t[i], (0, 30*(i+1)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+            text_img = cv2.putText(text_img, txt_t[i], (0, 20*(i+1)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
         return text_img
 
 

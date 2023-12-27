@@ -62,7 +62,7 @@ class reward(object):
 
         curr_xy = self.id2xy(curr_id)
         # 1. direction reward: the ego should drive ahead, if turn around ego will get penalty
-        prev_dir, curr_dir  = ego_vehicle.histroy_direction[-2], ego_vehicle.histroy_direction[-1]
+        # prev_dir, curr_dir  = ego_vehicle.histroy_direction[-2], ego_vehicle.histroy_direction[-1]
 
         #if sum(prev_dir * curr_dir) < -0.5:
         #    r_dir = -0.2
