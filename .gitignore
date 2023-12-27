@@ -1,0 +1,8 @@
+# Ignore Python byte-compiled files
+*.pyc
+
+# Ignore macOS system files
+.DS_Store
+
+# Ignore Windows Thumbs.db file
+Thumbs.db
