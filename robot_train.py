@@ -14,6 +14,9 @@ import os
 from datetime import datetime
 import numpy as np
 from stable_baselines3.common.env_util import make_vec_env
+import warnings
+
+warnings.filterwarnings("ignore", category=UserWarning)
 
 class myrobot(object):
     def __init__(self, base_path = './data/checkpoint_noimg/', 
@@ -64,11 +67,11 @@ class myrobot(object):
         # set up logger
         new_logger = configure(tmp_path, ["stdout", "csv", "tensorboard"])
         
-        callback_list = init_callback_list(env = env, save_path=self.base_path, save_freq = 1e2, save_replay_buffer=True, 
+        callback_list = init_callback_list(env = env, save_path=self.base_path, save_freq = 1e4, save_replay_buffer=True, 
                                            verbose=0, wandb_flag=wandb_flag, cfg=self.wandb_kwargs)
         
-        model = my_dqn(myPolicy, env, verbose=0, buffer_size=2000, learning_starts=0, train_freq=(100,'step'), gradient_steps=10,
-                    target_update_interval=200, batch_size=256, learning_rate=5e-5, policy_kwargs=self.policy_kwargs, device=torch.device(1),
+        model = my_dqn(myPolicy, env, verbose=0, buffer_size=2000, learning_starts=0, train_freq=(100,'step'), gradient_steps=20,
+                    target_update_interval=200, batch_size=256, learning_rate=3e-5, policy_kwargs=self.policy_kwargs, device=torch.device(1),
                     stats_window_size=200)
         model.set_logger(new_logger)
         self.callback = callback_list
@@ -80,7 +83,7 @@ class myrobot(object):
         else:
             model.load_replay_buffer(self.latest_buffer_path)
             model = model.load(self.latest_ckpt_path, env=env, buffer_size=2000, learning_starts=0, train_freq=(100,'step'), gradient_steps=20,
-                    target_update_interval=100, batch_size=256, learning_rate=1e-5, device=torch.device(1))
+                    target_update_interval=100, batch_size=256, learning_rate=5e-5, device=torch.device(1))
             model.learn(total_timesteps=5e6, log_interval=5000, progress_bar=True, callback=callback_list, reset_num_timesteps=False,)
 
     def get_buffer_name(self, buffer_step = None):
@@ -109,7 +112,9 @@ class myrobot(object):
             assert len(sorted_ckpt_file) == 1
         return sorted_ckpt_file[0], int(sorted_ckpt_file[0].split('_')[2])
 
-    def evaluate(self, save_path = "./data/video/", episode_num = 5, time_out = 200):
+    def evaluate(self, model: my_dqn, save_path = "./data/video/", episode_num = 1, time_out = 200, random_rate=0.0):
+        model = model.load(self.latest_ckpt_path, env=env, buffer_size=2000, learning_starts=0, train_freq=(100,'step'), gradient_steps=20,
+                    target_update_interval=100, batch_size=256, learning_rate=5e-5, device=torch.device(1))
         episode_step = 0
         time_step = 0
         total_reward = 0
@@ -120,25 +125,33 @@ class myrobot(object):
         current_minute = now.strftime("%M")
         folder_name = f"{current_month}_{current_day}_{current_hour}_{current_minute}"
         folder_path = os.path.join(save_path, folder_name)
+        model.exploration_rate = random_rate
         print(f"setup folder path: {folder_path}")
         os.makedirs(folder_path)
         pb = tqdm()
         while episode_step < episode_num:
             info_args = {}
-            action_prob = np.array([0,0,0,0], dtype=np.float64)
             pb.update(1)
             if self._last_obs is None:
                 obs, info = self.env.reset()
                 self._last_obs = copy.deepcopy(obs)
                 info_args['topo'] = obs['map_topo']
-                info_args['action_prob'] = action_prob
+                info_args['action_prob'] = np.array([-1,-1,-1,-1], dtype=np.float64)
+                info_args['action_value'] = np.array([-1,-1,-1,-1], dtype=np.float64)
+                info_args['history_actions'] = obs['history_actions']
+                info_args['route_actions'] = obs['route_actions']
                 arr_img = self.env.unwrapped.render(**info_args)
                 img_name = f"ep_{episode_step}_timestep_{time_step}.jpg"
                 cv2.imwrite(os.path.join(folder_path, img_name), arr_img)
                 time_step += 1
 
-            action, state = model.predict(observation=self._last_obs, deterministic=True)
-            action_prob = model.policy.q_net.prob_values
+            action, state = model.predict(observation=self._last_obs, deterministic=False)
+            random_flag = model.logger.name_to_value.get("debug/random")
+            if not random_flag:
+                action_prob = model.policy.q_net.prob_values        # determine的，所以每次必定有prob，random的话就没有
+                action_value = model.policy.q_net.q_values
+            else:
+                action_prob = np.array([-1,-1,-1,-1])
             obs, reward, done, _, info = self.env.step(action=action)
             self._last_obs = copy.deepcopy(obs)
             total_reward += reward
@@ -146,6 +159,9 @@ class myrobot(object):
             # topo = obs['map_topo']
             info_args['topo'] = obs['map_topo']
             info_args['action_prob'] = action_prob
+            info_args['action_value'] = action_value
+            info_args['history_actions'] = obs['history_actions']
+            info_args['route_actions'] = obs['route_actions']
             arr_img = self.env.unwrapped.render(**info_args)
             img_name = f"ep_{episode_step}_timestep_{time_step}.jpg"
             cv2.imwrite(os.path.join(folder_path, img_name), arr_img)
@@ -160,7 +176,10 @@ class myrobot(object):
                 time_step = 0
                 # topo = obs['map_topo']
                 info_args['topo'] = obs['map_topo']
-                info_args['action_prob'] = np.array([0,0,0,0], dtype=np.float64)
+                info_args['action_prob'] = np.array([-1,-1,-1,-1], dtype=np.float64)
+                info_args['action_value'] = np.array([-1,-1,-1,-1], dtype=np.float64)
+                info_args['history_actions'] = obs['history_actions']
+                info_args['route_actions'] = obs['route_actions']
                 arr_img = self.env.unwrapped.render(**info_args)
                 img_name = f"ep_{episode_step}_timestep_{time_step}.jpg"
                 cv2.imwrite(os.path.join(folder_path, img_name), arr_img)
@@ -172,12 +191,12 @@ class myrobot(object):
 if __name__ == "__main__":
     policy_kwargs = {
         "features_extractor_kwargs": {"net_arch":[8,32,16], },
-        "net_arch": [64, 64, 16],
+        "net_arch": [256, 256, 64],
     }
-    project_name = "test_with_img_ver1"
+    project_name = "test_with_img_trick"
     wandb_kwargs = {
-        'wb_project': f"terminal_{project_name}",
-        'wb_name': None,
+        'wb_project': f"terminal_test_with_img_trick",
+        'wb_name': "revise_target_lr_5e-5_ver1",
         'wb_notes': None, 
         'wb_tags': None,
     }
@@ -187,6 +206,6 @@ if __name__ == "__main__":
     
     model, callback_list = robot.set_model(env=env, wandb_flag=False)
     if train:
-        robot.learn(model=model, callback_list=callback_list, env=env, train_from_scratch=True)
+        robot.learn(model=model, callback_list=callback_list, env=env, train_from_scratch=False)
     else:
-        robot.evaluate()
+        robot.evaluate(model=model, random_rate=0.0, episode_num=2)
