@@ -61,8 +61,11 @@ class my_dqn(DQN):
                 else:
                     n_batch = observation.shape[0]
                 a_list = []
+            else:
+                n_batch = 1
+                a_list = []
             for i in range(n_batch):
-                topo_info = observation["map_topo"][i]
+                topo_info = observation["map_topo"].reshape(n_batch, -1)[i]
                 indice = np.where(topo_info < 0.5)[0]
                 a_list.append(np.random.choice(indice))
             action = np.array(a_list)
@@ -71,7 +74,7 @@ class my_dqn(DQN):
             action, state = self.policy.predict(observation, state, episode_start, deterministic)
             self.logger.record("debug/random", False)
         self.logger.record("debug/topo_pred", observation['map_topo'])
-        self.logger.record("debug/history_pred", observation["history_id"])
+        self.logger.record("debug/history_pred", observation["history_actions"])
         self.logger.record("debug/desid_pred", observation["des_id"])
         return action, state
         
@@ -99,8 +102,11 @@ class my_dqn(DQN):
             with th.no_grad():
                 # Compute the next Q-values using the target network
                 next_q_values = self.q_net_target(replay_data.next_observations)
+                next_topo_masks = replay_data.next_observations['map_topo'] # (batch_size, 4)
+                curr_topo_masks = replay_data.observations['map_topo']
+                feasible_next_q_values = next_q_values - 10000 * next_topo_masks
                 # Follow greedy policy: use the one with the highest value
-                next_q_values, _ = next_q_values.max(dim=1)
+                next_q_values, _ = feasible_next_q_values.max(dim=1)
                 # Avoid potential broadcast issue
                 next_q_values = next_q_values.reshape(-1, 1)
                 # 1-step TD target
@@ -111,7 +117,9 @@ class my_dqn(DQN):
 
             # Retrieve the q-values for the actions from the replay buffer
             current_q_values = th.gather(current_q_values, dim=1, index=replay_data.actions.long())
-
+            action_masks = th.gather(curr_topo_masks, dim=1, index=replay_data.actions.long())
+            assert th.sum(action_masks) == 0        # check whether actions are legal
+                # print("debug")
             # Compute Huber loss (less sensitive to outliers)
             loss = F.smooth_l1_loss(current_q_values, target_q_values)
             losses.append(loss.item())
