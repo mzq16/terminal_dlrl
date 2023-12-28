@@ -85,7 +85,7 @@ class myrobot(object):
         else:
             model.load_replay_buffer(self.latest_buffer_path)
             model = model.load(self.latest_ckpt_path, env=env, buffer_size=2000, learning_starts=0, train_freq=(100,'step'), gradient_steps=20,
-                    target_update_interval=100, batch_size=256, learning_rate=5e-5, device=torch.device(1))
+                    target_update_interval=40, batch_size=256, learning_rate=1e-4, device=torch.device(1))
             model.set_logger(new_logger)
             model.learn(total_timesteps=5e6, log_interval=5000, progress_bar=True, callback=callback_list, reset_num_timesteps=False,)
 
@@ -136,16 +136,11 @@ class myrobot(object):
         os.makedirs(folder_path)
         pb = tqdm()
         while episode_step < episode_num:
-            info_args = {}
             pb.update(1)
             if self._last_obs is None:
                 obs, info = self.env.reset()
                 self._last_obs = copy.deepcopy(obs)
-                info_args['topo'] = obs['map_topo']
-                info_args['action_prob'] = np.array([-1,-1,-1,-1], dtype=np.float64)
-                info_args['action_value'] = np.array([-1,-1,-1,-1], dtype=np.float64)
-                info_args['history_actions'] = obs['history_actions']
-                info_args['route_actions'] = obs['route_actions']
+                info_args = self._info4eval_debug(obs=obs, info=info)
                 arr_img = self.env.unwrapped.render(**info_args)
                 img_name = f"ep_{episode_step}_timestep_{time_step}.jpg"
                 cv2.imwrite(os.path.join(folder_path, img_name), arr_img)
@@ -157,17 +152,11 @@ class myrobot(object):
                 action_prob = model.policy.q_net.prob_values        # determine的，所以每次必定有prob，random的话就没有
                 action_value = model.policy.q_net.q_values
             else:
-                action_prob = np.array([-1,-1,-1,-1])
+                action_prob = np.array([-1,-1,-1,-1.0])
             obs, reward, done, _, info = self.env.step(action=action)
             self._last_obs = copy.deepcopy(obs)
             total_reward += reward
-            # draw
-            # topo = obs['map_topo']
-            info_args['topo'] = obs['map_topo']
-            info_args['action_prob'] = action_prob
-            info_args['action_value'] = action_value
-            info_args['history_actions'] = obs['history_actions']
-            info_args['route_actions'] = obs['route_actions']
+            info_args = self._info4eval_debug(obs=obs, info=info, action_prob=action_prob, action_value=action_value)
             arr_img = self.env.unwrapped.render(**info_args)
             img_name = f"ep_{episode_step}_timestep_{time_step}.jpg"
             cv2.imwrite(os.path.join(folder_path, img_name), arr_img)
@@ -180,18 +169,22 @@ class myrobot(object):
                 print(f"length: {time_step}, total_reward: {total_reward}")
                 total_reward = 0
                 time_step = 0
-                # topo = obs['map_topo']
-                info_args['topo'] = obs['map_topo']
-                info_args['action_prob'] = np.array([-1,-1,-1,-1], dtype=np.float64)
-                info_args['action_value'] = np.array([-1,-1,-1,-1], dtype=np.float64)
-                info_args['history_actions'] = obs['history_actions']
-                info_args['route_actions'] = obs['route_actions']
+                info_args = self._info4eval_debug(obs=obs, info=info)
                 arr_img = self.env.unwrapped.render(**info_args)
                 img_name = f"ep_{episode_step}_timestep_{time_step}.jpg"
                 cv2.imwrite(os.path.join(folder_path, img_name), arr_img)
                 time_step += 1
         pb.close()
 
+    def _info4eval_debug(self, obs:dict, info:dict, action_prob=np.array([-1,-1,-1,-1.0]), action_value=np.array([-1,-1,-1,-1.0])):
+        info_args = {}
+        info_args['topo'] = obs.get('map_topo')
+        info_args['action_prob'] = action_prob
+        info_args['action_value'] = action_value
+        info_args['history_actions'] = obs.get('history_actions')
+        info_args['route_actions'] = obs.get('route_actions')
+        info_args['cover_ov_id'] = info.get('cover_ov_id')
+        return info_args
 
 
 if __name__ == "__main__":
@@ -199,10 +192,10 @@ if __name__ == "__main__":
         "features_extractor_kwargs": {"net_arch":[8,32,16], },
         "net_arch": [256, 256, 64],
     }
-    project_name = "test_with_img_trick_ver1"
+    project_name = "test_img_trick_ov"
     wandb_kwargs = {
-        'wb_project': f"terminal_test_with_img_trick",
-        'wb_name': "revise_target_lr_5e-5_ver1",
+        'wb_project': f"terminal_{project_name}",
+        'wb_name': "lr_1e-4",
         'wb_notes': None, 
         'wb_tags': None,
     }
@@ -210,10 +203,11 @@ if __name__ == "__main__":
     robot = myrobot(base_path=f'./data/{project_name}/', buffer_step=None, ckpt_step=None, policy_kwargs=policy_kwargs, wandb_kwargs=wandb_kwargs)
     env = robot.set_env(n_envs=1, train=train)
     
-    model, callback_list, new_logger = robot.init_model(env=env, wandb_flag=False)
+    model, callback_list, new_logger = robot.init_model(env=env, wandb_flag=train)
     if train:
         if robot.latest_ckpt_path is None:
             train_from_scratch = True
+            print('train from scratch')
         else:
             train_from_scratch = False
         robot.learn(model=model, callback_list=callback_list, env=env, train_from_scratch=train_from_scratch, new_logger=new_logger)

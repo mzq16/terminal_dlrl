@@ -154,10 +154,10 @@ class Terminal_Env(gym.Env):
         self.obs = copy.deepcopy(obs)
 
         # 3. get reward, terminal & get info
-        total_reward, done = self.reward_handle.step(self.other_vehicles_list, self.ev_handle, obs["routes"])
+        total_reward, done, cover_ov_id = self.reward_handle.step(self.other_vehicles_list, self.ev_handle, obs["routes"])
         self.done = done
         self.action = action
-        info = self._get_info()
+        info = self._get_info(cover_ov_id=cover_ov_id)
         self.info = info
         
         return obs, total_reward, done, False, info
@@ -249,11 +249,13 @@ class Terminal_Env(gym.Env):
         obs["render_img"] = img
         return obs
 
-    def _get_info(self):
-        return {
-            'ev_loc': self.ev_handle._get_ev_loc_id(),
-            'reward_info': self.reward_handle.reward_info,
-            }
+    def _get_info(self, **other_info):
+        info_dict = {}
+        for k, v in other_info.items():
+            info_dict[k] = v
+        info_dict['ev_loc'] = self.ev_handle._get_ev_loc_id()
+        info_dict['reward_info'] = self.reward_handle.reward_info
+        return info_dict
 
     def _get_plot_xy(self, tmp_vehicle):
         xy_coord = utils.train_data2xy(train_data = tmp_vehicle.recent_history[-1], mean = tmp_vehicle.mean, std = tmp_vehicle.std)
@@ -413,7 +415,7 @@ class Terminal_Env(gym.Env):
         txt_t1 = f'r_exc:{info["r_exc"]:5.2f}, r_timeout:{info["r_timeout"]:5.2f}'
         txt_t2 = f'r_t:{info["r_t"]:5.2f}, r_total:{info["r_total"]:5.2f}'
         txt_t3 = f'r_dir:{info["r_dir"]:5.2f}, r_arr:{info["r_arr"]:5.2f}'
-        txt_t4 = f'r_dis:{info["r_dis"]:5.2f}, r_path:{info["r_path"]:5.2f}'
+        txt_t4 = f'r_dis:{info["r_dis"]:5.2f}, r_path:{info["r_path"]:5.2f}, r_cover:{info["r_cover"]:5.2f}'
         txt_t5 = f"done:{self.done}, action:{self.action}"
         txt_t6 = f"start_id:{start_id}, des_id:{des_id}"
 
@@ -433,7 +435,9 @@ class Terminal_Env(gym.Env):
         history_act = info_args.get('history_actions')
         route_act = info_args.get('route_actions')
         action_value = info_args.get('action_value')
+        cover_ov_id = info_args.get('cover_ov_id')
         txt_t7 = f"topo:{topo} "
+
         if action_prob is None:
             txt_t8 = f"prev_a_prob:{action_prob}"
         else:
@@ -447,12 +451,16 @@ class Terminal_Env(gym.Env):
         else:
             action_value = np.round(action_value, decimals=2)
             txt_t8_5 = f"action_value: {action_value}"
+
         txt_t9 = txt_t10 = f""
         for i in range(len(history_act)):
             txt_t9 += f"act{i}:{history_act[i]} " 
         for i in range(len(route_act[0])):
             txt_t10 += f"r_act{i}:{route_act[0][i]} "
-        txt_t = [txt_t1, txt_t2, txt_t3, txt_t4, txt_t5, txt_t6, txt_t7, txt_t8, txt_t8_5, txt_t9, txt_t10] + txt_histroy_list
+
+        txt_t11 = f"cover_id: {cover_ov_id}"
+
+        txt_t = [txt_t1, txt_t2, txt_t3, txt_t4, txt_t5, txt_t6, txt_t7, txt_t8, txt_t8_5, txt_t9, txt_t10, txt_t11] + txt_histroy_list
         for i in range(len(txt_t)):
             text_img = cv2.putText(text_img, txt_t[i], (0, 20*(i+1)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
         return text_img

@@ -1,3 +1,4 @@
+from email.policy import default
 import numpy as np
 import math
 from . import utils
@@ -5,7 +6,7 @@ from typing import List, Tuple, Dict
 from .other_vehicle import other_vehicle
 from .ego_vehicle import ego_vehicle
 import networkx as nx
-from collections import deque, Counter
+from collections import defaultdict, deque, Counter
 
 class reward(object):
     def __init__(self, G, id2plot_xy, plot_xy2id, start_id: int, des_id: int, routes = None, timeout_step: int = 200) -> None:
@@ -17,10 +18,8 @@ class reward(object):
         self.des_id = des_id
         self.start_xy = self.id2xy(start_id)    # np.ndarray
         self.des_xy = self.id2xy(des_id)        # np.ndarray
-        self.init_info()
-
-        # TODO col & row -> xy, then calculate distance
-
+        # self.init_info()
+        self.reward_info = defaultdict(int)
         self.total_dis = np.linalg.norm(self.start_xy - self.des_xy)
         self.prev_dis = self.total_dis
         # self.prev_shortest_path = nx.shortest_path(self.G, source=self.start_id, target=self.des_id)
@@ -44,7 +43,7 @@ class reward(object):
             self.reward_info['r_total'] = r_total
             self.episode_step = 0
             done = True
-            return r_total, done
+            return r_total, done, None
         
         # 0.5 timeout
         self.episode_step += 1
@@ -56,7 +55,7 @@ class reward(object):
             self.reward_info['r_total'] = r_total
             self.episode_step = 0
             done = True
-            return r_total, done
+            return r_total, done, None
         else:
             r_timeout = 0
 
@@ -97,17 +96,16 @@ class reward(object):
         #    pass
         self.prev_dis = distance
         self.prev_shortest_path = curr_shortest_path
-        # 3. distance from other vehicle
-        # TODO sum 
-        
 
+        # 3. distance from other vehicle
+        # TODO 重合--reward， 其实可以看半径，或者说看
+        ov_curr_ids = [other_vehicle_list[i].curr_id for i in range(len(other_vehicle_list))]
+        cover_ov_id, cover_ov_num = self.check_cover(ev_id=curr_id, ov_curr_ids=ov_curr_ids, cover_iteration=2)
+        r_cover = -0.4* cover_ov_num 
+        
         # 4. time, need to be as soon as possible
         # 不as soon as possible了，能正常走在路网内就很可以了
         r_t = -0.1
-
-        # 5. speed should not be zero, if ego vehicle at some current time receive positive reward, 
-        #   it could stop forever to acheive higher total reward
-        # r_spd = -0.1 if curr_CR == prev_CR else 0
 
         # 6. arrived 
         if curr_id == ego_vehicle.target_id:
@@ -118,11 +116,11 @@ class reward(object):
             self.reward_info['r_arr'] = r_arr
             self.episode_step = 0
             done = True
-            return r_total, done
+            return r_total, done, None
         else:
             r_arr = 0
 
-        r_total = r_dir + r_dis + r_t + r_arr + r_path
+        r_total = r_dir + r_dis + r_t + r_arr + r_path + r_cover
         self.reward_info['r_total'] = r_total
         self.reward_info['r_dir'] = r_dir
         self.reward_info['r_dis'] = r_dis
@@ -130,13 +128,15 @@ class reward(object):
         self.reward_info['r_arr'] = r_arr
         self.reward_info['r_path'] = r_path
         self.reward_info['r_timeout'] = r_timeout
+        self.reward_info['r_cover'] = r_cover
         # self.reward_info['r_shake'] = r_shake
 
-        return r_total, done
+        return r_total, done, cover_ov_id
 
     def reset(self, start_id, des_id, routes, timeout_step = 200):
         self.destroy()
-        self.init_info()
+        # self.init_info()
+        self.reward_info.clear()
         self.start_id = start_id
         self.des_id = des_id
         self.routes = routes
@@ -152,9 +152,10 @@ class reward(object):
     def destroy(self):
         self.total_dis = None
         self.prev_dis = None
-        self.reward_info = {}
+        self.reward_info.clear()
 
     def init_info(self):
+        '''
         info = {}
         info['r_exc'] = 0
         info['r_arr'] = 0
@@ -165,7 +166,9 @@ class reward(object):
         info['r_path'] = 0
         info['r_timeout'] = 0
         self.reward_info = info
-
+        '''
+        self.reward_info = defaultdict(int)
+        
     def get_dis(self, curr_xy: np.ndarray):
         return np.linalg.norm(curr_xy - self.des_xy)
     
@@ -183,7 +186,25 @@ class reward(object):
 
         return xy
 
+    def check_cover(self, ev_id, ov_curr_ids:list, cover_iteration:int=2):
+        in_circle_n = 0
+        cover_id = []
+        iter_neighbours = self.get_neighbours_at_iteration(node=ev_id, iteration=cover_iteration)
+        for neighbour_id in iter_neighbours:
+            if neighbour_id in ov_curr_ids:
+                in_circle_n += 1
+                cover_id.append(neighbour_id)
+        return cover_id, in_circle_n
     
+    def get_neighbours_at_iteration(self, node, iteration):
+        neighbors = [node]
+        for _ in range(iteration):
+            new_neighbors = set()
+            for neighbor in neighbors:
+                new_neighbors.update(set(self.G.neighbors(neighbor)))
+            neighbors = list(new_neighbors)
+        return neighbors
+
 class reward_old_version(object):
     def __init__(self, map_size: list, map_arc: list, map_xy: list, start_id: int, des_id: id) -> None:
         '''
