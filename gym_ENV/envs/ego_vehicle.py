@@ -99,8 +99,6 @@ class ego_vehicle(object):
         self.plot_xy2id = plot_xy2id
         self.id2plot_xy = id2plot_xy
         self.G = G
-
-        
         self.init_param(start_point_id, target_point_id)
         self._action_to_direction = { 
             0: np.array([0, 1]),
@@ -118,9 +116,10 @@ class ego_vehicle(object):
         self.history_inputxy.append(self.current_position)
         for _ in range(self.history_len):
             self._history_point_id.append(self.start_id)
-            self._histroy_action.append(-1)
+            self._histroy_action.append(4)
         self._aligned_option = self.get_aligned_option()
-
+        self._aligned_option.append(0)
+        
     # 执行一步的操作
     def step(self, action, random_flag = False):
         if self._current_id is None:
@@ -132,16 +131,12 @@ class ego_vehicle(object):
         #aligned_option = self.get_aligned_option()
         if not isinstance(action, int):
             action = int(action)
-        assert action < 4, "error action in aligned options"
-        next_point_id = self._aligned_option[action]
+        assert action < 5, "error action in aligned options"
+        if action == 4:
+            next_point_id = self._current_id
+        else:
+            next_point_id = self._aligned_option[action]
         
-        if random_flag:
-            # pick up correct option
-            all_are_none = all(element is None for element in self._aligned_option)
-            if all_are_none:
-                raise ValueError(f"no ways of node {self._current_id}")
-            while next_point_id is None:
-                next_point_id = np.random.choice(self._aligned_option)
         self._current_id = next_point_id
         if next_point_id is None:
             print(self._history_point_id)
@@ -150,6 +145,7 @@ class ego_vehicle(object):
         self._history_point_id.append(next_point_id)
         self._histroy_action.append(action)
         self._aligned_option = self.get_aligned_option()
+        self._aligned_option.append(0)
         return [int(i is None) for i in self._aligned_option]
 
     def reset(self, seed=None, OD:tuple=None):

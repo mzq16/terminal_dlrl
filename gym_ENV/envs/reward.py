@@ -71,7 +71,8 @@ class reward(object):
         # 1.5 有些时候会在角落里陷入局部最优，就在角落里来回震荡, 避免这种情况
         history_point_id = ego_vehicle.history_point_id
         if history_point_id.count(history_point_id[-1]) == 3:
-            r_dir = -1
+            if history_point_id[-1] != 4:
+                r_dir = -1
             
         # 2. distance from des reward: more close more reward
         # 纯欧拉

@@ -75,19 +75,16 @@ class Terminal_Env(gym.Env):
         只有4个动作，要不要考虑5个，第5个就是停止，
         如果需要的话在ego vehicle中要修改一下aligned option，aligned option + [curr_point_id]
         """
-        self.action_space = gym.spaces.Discrete(4)
+        self.action_space = gym.spaces.Discrete(5)  # 4 is stop
         self.observation_space = gym.spaces.Dict(
             {
-            #"ev_curr_id": gym.spaces.Box(low=0, high=255, shape=(1,), dtype=np.int64),       
-            #"ev_prev_id": gym.spaces.Box(low=0, high=255, shape=(1,), dtype=np.int64),
-            "history_actions": gym.spaces.Box(low=0, high=255, shape=(5,), dtype=np.int64),       
-            # "ev_direction": gym.spaces.Box(low=0, high=3, shape=(1,), dtype=np.int32),  # 4 direction, no stop
+            "history_actions": gym.spaces.Box(low=0, high=4, shape=(5,), dtype=np.int64),       
             "render_img": gym.spaces.Box(low=0, high=255, shape=(map_size[1], map_size[0], 3), dtype=np.uint8),
             "ov_id": gym.spaces.Box(low=0, high=1000, shape=(self.number_v, ), dtype=np.int64),
             "des_id": gym.spaces.Box(low=0, high=1000, shape=(1,), dtype=np.int64),
-            "map_topo": gym.spaces.Box(low=0, high=1, shape=(4,), dtype=np.int64),
+            "map_topo": gym.spaces.Box(low=0, high=1, shape=(5,), dtype=np.int64),
             "routes": gym.spaces.Box(low=0, high=1000, shape=(route_number, route_length), dtype=np.int64),
-            "route_actions": gym.spaces.Box(low=0, high=3, shape=(route_number, route_length - 1), dtype=np.int64),
+            "route_actions": gym.spaces.Box(low=0, high=4, shape=(route_number, route_length - 1), dtype=np.int64),
             }
         )
 
@@ -97,7 +94,7 @@ class Terminal_Env(gym.Env):
         self.clock = None
         self.seed = seed
         aligned_option = self.ev_handle.aligned_option
-        self.map_topo = np.array([int(i is None) for i in aligned_option]).reshape(4,)
+        self.map_topo = np.array([int(i is None) for i in aligned_option]).reshape(5,)
         
     def init_fig(self):
         # plt的过程中统计了映射id2plot_xy, plot_xy2id，后期可以提取出来
@@ -140,7 +137,7 @@ class Terminal_Env(gym.Env):
     def step(self, action: int):
         # 1. action: ego act, other act
         map_topo = self.ev_handle.step(action=action)
-        self.map_topo = np.array(map_topo).reshape(4,)
+        self.map_topo = np.array(map_topo).reshape(5,)
         # TODO get output from LSTM, return as observation
         for i in range(self.number_v):
             tmp_vehicle = self.other_vehicles_list[i]
@@ -166,7 +163,7 @@ class Terminal_Env(gym.Env):
         super().reset(seed=seed)
         self.init_img_info()
         map_topo = self.ev_handle.reset(seed=seed, OD=OD)
-        self.map_topo = np.array(map_topo).reshape(4,)
+        self.map_topo = np.array(map_topo).reshape(5,)
 
         # TODO background vehicle control reset
         for i in range(self.number_v):
