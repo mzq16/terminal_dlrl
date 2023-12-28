@@ -1,4 +1,5 @@
 
+from ast import mod
 import copy
 import gymnasium as gym
 from networkx import project
@@ -23,6 +24,8 @@ class myrobot(object):
                  buffer_step = None, ckpt_step = None, policy_kwargs = {},
                  wandb_kwargs = None):
         self.base_path = base_path
+        self.latest_buffer_path = None
+        self.latest_ckpt_path = None
         if not os.path.exists(base_path):
             os.mkdir(base_path)
         self.policy_kwargs = policy_kwargs
@@ -62,11 +65,10 @@ class myrobot(object):
         self.env = env
         return env
     
-    def set_model(self, env, wandb_flag = True):
+    def init_model(self, env, wandb_flag = True):
         tmp_path = "./tmp/sb3_log/"
         # set up logger
         new_logger = configure(tmp_path, ["stdout", "csv", "tensorboard"])
-        
         callback_list = init_callback_list(env = env, save_path=self.base_path, save_freq = 1e4, save_replay_buffer=True, 
                                            verbose=0, wandb_flag=wandb_flag, cfg=self.wandb_kwargs)
         
@@ -75,15 +77,16 @@ class myrobot(object):
                     stats_window_size=200)
         model.set_logger(new_logger)
         self.callback = callback_list
-        return model, callback_list
+        return model, callback_list, new_logger
     
-    def learn(self, model:my_dqn, callback_list, env, train_from_scratch=False):
+    def learn(self, env, model:my_dqn=None, callback_list=None, new_logger=None, train_from_scratch=False):
         if train_from_scratch:
             model.learn(total_timesteps=5e6, log_interval=5000, progress_bar=True, callback=callback_list, reset_num_timesteps=False,)
         else:
             model.load_replay_buffer(self.latest_buffer_path)
             model = model.load(self.latest_ckpt_path, env=env, buffer_size=2000, learning_starts=0, train_freq=(100,'step'), gradient_steps=20,
                     target_update_interval=100, batch_size=256, learning_rate=5e-5, device=torch.device(1))
+            model.set_logger(new_logger)
             model.learn(total_timesteps=5e6, log_interval=5000, progress_bar=True, callback=callback_list, reset_num_timesteps=False,)
 
     def get_buffer_name(self, buffer_step = None):
@@ -113,8 +116,11 @@ class myrobot(object):
         return sorted_ckpt_file[0], int(sorted_ckpt_file[0].split('_')[2])
 
     def evaluate(self, model: my_dqn, save_path = "./data/video/", episode_num = 1, time_out = 200, random_rate=0.0):
-        model = model.load(self.latest_ckpt_path, env=env, buffer_size=2000, learning_starts=0, train_freq=(100,'step'), gradient_steps=20,
+        model = my_dqn.load(self.latest_ckpt_path, env=env, buffer_size=2000, learning_starts=0, train_freq=(100,'step'), gradient_steps=20,
                     target_update_interval=100, batch_size=256, learning_rate=5e-5, device=torch.device(1))
+        tmp_path = "./tmp/sb3_log/"
+        new_logger = configure(tmp_path, ["stdout", "csv", "tensorboard"])
+        model.set_logger(new_logger)
         episode_step = 0
         time_step = 0
         total_reward = 0
@@ -193,7 +199,7 @@ if __name__ == "__main__":
         "features_extractor_kwargs": {"net_arch":[8,32,16], },
         "net_arch": [256, 256, 64],
     }
-    project_name = "test_with_img_trick"
+    project_name = "test_with_img_trick_ver1"
     wandb_kwargs = {
         'wb_project': f"terminal_test_with_img_trick",
         'wb_name': "revise_target_lr_5e-5_ver1",
@@ -204,8 +210,14 @@ if __name__ == "__main__":
     robot = myrobot(base_path=f'./data/{project_name}/', buffer_step=None, ckpt_step=None, policy_kwargs=policy_kwargs, wandb_kwargs=wandb_kwargs)
     env = robot.set_env(n_envs=1, train=train)
     
-    model, callback_list = robot.set_model(env=env, wandb_flag=False)
+    model, callback_list, new_logger = robot.init_model(env=env, wandb_flag=False)
     if train:
-        robot.learn(model=model, callback_list=callback_list, env=env, train_from_scratch=False)
+        if robot.latest_ckpt_path is None:
+            train_from_scratch = True
+        else:
+            train_from_scratch = False
+        robot.learn(model=model, callback_list=callback_list, env=env, train_from_scratch=train_from_scratch, new_logger=new_logger)
     else:
-        robot.evaluate(model=model, random_rate=0.0, episode_num=2)
+        assert robot.latest_ckpt_path is not None, "do not have trained ckpt"
+
+        robot.evaluate(model=model, random_rate=0.0, episode_num=5)
