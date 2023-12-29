@@ -65,11 +65,11 @@ class myrobot(object):
         self.env = env
         return env
     
-    def init_model(self, env, wandb_flag = True):
+    def init_model(self, env, wandb_flag=True, save_freq=1e4):
         tmp_path = "./tmp/sb3_log/"
         # set up logger
         new_logger = configure(tmp_path, ["stdout", "csv", "tensorboard"])
-        callback_list = init_callback_list(env = env, save_path=self.base_path, save_freq = 2e4, save_replay_buffer=True, 
+        callback_list = init_callback_list(env = env, save_path=self.base_path, save_freq=save_freq, save_replay_buffer=True, 
                                            verbose=0, wandb_flag=wandb_flag, cfg=self.wandb_kwargs)
         
         model = my_dqn(myPolicy, env, verbose=0, buffer_size=2000, learning_starts=0, train_freq=(100,'step'), gradient_steps=20,
@@ -192,7 +192,7 @@ if __name__ == "__main__":
         "features_extractor_kwargs": {"net_arch":[8,32,16], },
         "net_arch": [256, 256, 64],
     }
-    project_name = "test_img_trick_ov"
+    project_name = "test_action_with_stop"
     wandb_kwargs = {
         'wb_project': f"terminal_{project_name}",
         'wb_name': "lr_1e-4",
@@ -203,7 +203,7 @@ if __name__ == "__main__":
     robot = myrobot(base_path=f'./data/{project_name}/', buffer_step=None, ckpt_step=None, policy_kwargs=policy_kwargs, wandb_kwargs=wandb_kwargs)
     env = robot.set_env(n_envs=1, train=train)
     
-    model, callback_list, new_logger = robot.init_model(env=env, wandb_flag=train)
+    model, callback_list, new_logger = robot.init_model(env=env, wandb_flag=train, save_freq=5e4)
     if train:
         if robot.latest_ckpt_path is None:
             train_from_scratch = True
@@ -214,4 +214,4 @@ if __name__ == "__main__":
     else:
         assert robot.latest_ckpt_path is not None, "do not have trained ckpt"
 
-        robot.evaluate(model=model, random_rate=0.0, episode_num=5)
+        robot.evaluate(model=model, random_rate=0.0, episode_num=1)
