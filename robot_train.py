@@ -69,7 +69,7 @@ class myrobot(object):
         tmp_path = "./tmp/sb3_log/"
         # set up logger
         new_logger = configure(tmp_path, ["stdout", "csv", "tensorboard"])
-        callback_list = init_callback_list(env = env, save_path=self.base_path, save_freq = 1e4, save_replay_buffer=True, 
+        callback_list = init_callback_list(env = env, save_path=self.base_path, save_freq = 2e4, save_replay_buffer=True, 
                                            verbose=0, wandb_flag=wandb_flag, cfg=self.wandb_kwargs)
         
         model = my_dqn(myPolicy, env, verbose=0, buffer_size=2000, learning_starts=0, train_freq=(100,'step'), gradient_steps=20,
@@ -199,7 +199,7 @@ if __name__ == "__main__":
         'wb_notes': None, 
         'wb_tags': None,
     }
-    train = False
+    train = True
     robot = myrobot(base_path=f'./data/{project_name}/', buffer_step=None, ckpt_step=None, policy_kwargs=policy_kwargs, wandb_kwargs=wandb_kwargs)
     env = robot.set_env(n_envs=1, train=train)
     
